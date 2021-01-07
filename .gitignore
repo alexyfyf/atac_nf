@@ -1,0 +1,7 @@
+.DS_Store
+.nextflow/
+.nextflow.log*
+results/
+work/
+sampledata/
+smux*
