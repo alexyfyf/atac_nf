@@ -14,13 +14,14 @@
  */
 
 params.reads      = "$baseDir/data/sample_R{1,2}.fq.gz"
+params.fasta      = ""
 params.outdir     = "results"
 params.aligner    = "bwa_mem"
 params.species    = "mm10"
 params.samplesheet= "$baseDir/data/samplesheet.csv"
-params.trim       = "trim"
+params.trim       = true
+params.single_end = false 
 params.blacklist  = "$baseDir/data/mm10.blacklist.bed"
-params.fasta      = ""
 params.adapter    = "$baseDir/data/NexteraPE-PE.fa"
 params.shift      = "$baseDir/bin/ATAC_BAM_shifter_gappedAlign.pl"
 params.hmmratacjar= "$baseDir/bin/HMMRATAC_V1.2.10_exe.jar"
@@ -30,15 +31,22 @@ params.hmmratac   = false
 log.info """\
 R R B S -  N F    v 1.0
 ================================
-species  	: $params.species
 reads    	: $params.reads
+fasta           : $params.fasta
 outdir   	: $params.outdir
+aligner		: $params.aligner
+species         : $params.species
 samplesheet	: $params.samplesheet
 trim            : $params.trim
+single_end      : $params.single_end
 blacklist       : $params.blacklist
-fasta           : $params.fasta
 adapter         : $params.adapter
+shiftscript	: $params.shift
 HMMRATAC        : $params.hmmratac
+MACS2_qval	: $params.macs2qval
+
+
+
 """
 
 /*
@@ -53,7 +61,7 @@ samplesheet     = file(params.samplesheet)
 species         = Channel.from(params.species)
 blacklist       = file(params.blacklist)
 shift           = file(params.shift)
-hmmratacjar        = file(params.hmmratacjar)
+hmmratacjar     = file(params.hmmratacjar)
 
 /*
  * PART 0: Preparation
@@ -62,6 +70,9 @@ process '0A_get_software_versions' {
     publishDir "${params.outdir}/pipeline_info", mode: 'copy'
     executor 'local'
 
+    input:
+    file(jar) from hmmratacjar
+    
     output:
     file '*.txt'
 
@@ -77,6 +88,7 @@ process '0A_get_software_versions' {
     macs2 --version &> v_macs2.txt
     deeptools --version &> v_deeptools.txt
     R --version &> v_R.txt
+    java -jar $jar | head -n1 &> v_HMMRATAC.txt
     """
 }
 
@@ -116,7 +128,7 @@ process '1A_pre_fastqc' {
 
 
 /*
- * Process 1B: 2-step triming for ATAC-seq data
+ * Process 1B: trimming for ATAC-seq data
  */
 process '1B_trim' {
     tag "$name"
@@ -132,7 +144,7 @@ process '1B_trim' {
      
     script:
     adapter = params.adapter
-    if ( params.trim == "trim"){
+    if ( params.trim ){
        """
        trimmomatic PE -threads ${task.cpus} \\
                            ${reads} -baseout ${name}.fastq.gz \\
@@ -197,7 +209,7 @@ bwa_base = params.fasta.substring(lastPath+1)
 process '2B_mapping' {
   tag "$name"
   label 'bismark'
-  publishDir "${params.outdir}/rawbamfiles", mode: 'symlink'
+  publishDir "${params.outdir}/RawBamFiles", mode: 'symlink'
 
   input:
       //file index from ch_bwa_index
@@ -218,10 +230,10 @@ process '2B_mapping' {
  * Process 2C: Post-alignment processing BAM files
  */
 
-process '2C_filter_bam' {
+process '2C_filter_pbc_bam' {
   tag "$name"
   label 'bismark'
-  publishDir "${params.outdir}/bamfiles", mode: 'copy'
+  publishDir "${params.outdir}/FilteredBamFiles", mode: 'copy'
 
   input:
       set val(name), file(bam), file(bai), file(fasta) from ch_bwa_bam.combine(ch_bam_filter)
@@ -239,13 +251,13 @@ process '2C_filter_bam' {
   bedpe =  params.single_end ? "" : "-bedpe"
   col = params.single_end ? "\$1,\$2,\$3,\$6" : "\$1,\$2,\$4,\$6,\$9,\$10"  
   """
-  ## filter 
+  ## filter low quality
   samtools view -@ ${task.cpus} -h -F 1804 ${flag} -q 30 -Sb ${bam} > ${name}.filtered.bam
-   
+  ## markdup not removing now
   picard MarkDuplicates VALIDATION_STRINGENCY=LENIENT CREATE_INDEX=true \
                         INPUT=${name}.filtered.bam OUTPUT=${name}_sorted_mdups.bam \
                         METRICS_FILE=${name}_dups.txt
-  # on raw bam file
+  # metrics on raw bam file
   picard CollectAlignmentSummaryMetrics VALIDATION_STRINGENCY=LENIENT \
                                         REFERENCE_SEQUENCE=${fasta} \
                                         INPUT=${bam} \
@@ -257,12 +269,15 @@ process '2C_filter_bam' {
                                   M=0.5
   samtools flagstat ${bam} > ${name}.flagstat
   samtools idxstats ${bam} > ${name}.idxstats
+  
   # PBC File output
   # TotalReadPairs [tab] DistinctReadPairs [tab] OneReadPair [tab] TwoReadPairs [tab] NRF=Distinct/Total [tab] PBC1=OnePair/Distinct [tab] PBC2=OnePair/TwoPair
+  
   samtools sort -@ ${task.cpus} -n ${name}_sorted_mdups.bam \
   | bedtools bamtobed ${bedpe} -i stdin | awk 'BEGIN{OFS="\t"}{print ${col} }' \
   | grep -v 'chrM' | sort | uniq -c \
   | awk 'BEGIN{mt=0;m0=0;m1=0;m2=0} (\$1==1){m1=m1+1} (\$1==2){m2=m2+1} {m0=m0+1} {mt=mt+\$1} END{print mt,m0,m1,m2,m0/mt,m1/m0,m1/m2}' > ${name}_pbc.txt 
+  
   ## remove duplicates and final bam
   samtools view -@ ${task.cpus} -h -F 1804 ${flag} -q 30 -Sb ${name}_sorted_mdups.bam > ${name}.final.bam
   samtools flagstat ${name}.final.bam > ${name}.final.flagstat
@@ -275,10 +290,10 @@ process '2C_filter_bam' {
  * Process 2D: Shift BAM
  */
 
-process '2D_shift' {
+process '2D_shift_bam' {
   tag "$name"
   label 'bismark'
-  publishDir "${params.outdir}/shiftedbamfiles", mode: 'symlink'
+  publishDir "${params.outdir}/ShiftedBamFiles", mode: 'symlink'
 
   input:
       set val(name), file(bam), file(bai) from ch_ddup_bam
@@ -288,6 +303,8 @@ process '2D_shift' {
 
   script:
   """
+  ## use perl script
+  ## maybe consider deeptools alignmentSieve in the future, although it doesn't have CIGAR
   perl $shift $bam ${name}_shifted
   samtools sort -@ ${task.cpus} ${name}_shifted.bam > ${name}_shifted_sorted.bam
   rm ${name}_shifted.bam
@@ -299,7 +316,7 @@ process '2D_shift' {
 /**********
  * PART 3: Peak Calling
  *
- * Process 3A: Macs2
+ * Process 3A: MACS2
  */
 process '3A_macs2' {
     publishDir "${params.outdir}/macs2", mode: 'copy'
@@ -406,6 +423,7 @@ process '4A_FRiP' {
 
     ## the following line won't work if chrM or MT is not in the fasta file header
     ## awk '/^chrM|^MT/ {print \$3}' ${name}.idxstats > ${name}.mtcount
+    
     ## samtools view -c $bam > ${name}.total
    
     ## to avoid stderr from samtools
