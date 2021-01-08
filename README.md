@@ -20,44 +20,49 @@
 # ATAC-seq pipeline
 
 # General
-Ref to this review paper:  
-Yan, F., Powell, D.R., Curtis, D.J. et al. From reads to insight: a hitchhiker’s guide to ATAC-seq data analysis. Genome Biol 21, 22 (2020).   
+Refer to this review paper:
+Yan, F., Powell, D.R., Curtis, D.J. et al. From reads to insight: a hitchhiker’s guide to ATAC-seq data analysis. Genome Biol 21, 22 (2020).
 https://doi.org/10.1186/s13059-020-1929-3
 ![Image of workflow](https://media.springernature.com/full/springer-static/image/art%3A10.1186%2Fs13059-020-1929-3/MediaObjects/13059_2020_1929_Fig2_HTML.png?as=webp)
 
+Also the ENCODE specification [here](https://docs.google.com/document/d/1f0Cm4vRyDQDu0bMehHD7P7KOMxTOP-HiNoIvL1VcBt8/edit).
+
 # Details
-## Pre-analysis
-### pre-QC: 
+## 1&2: Pre-analysis
+### 1A: Pre-QC:
 fastqc
-### trim: 
+### 1B: Trim:
 trimmomatic
-### alignment: 
+### 1C: Post-QC
+fastqc
+### 2A: Index Genome
+bwa index
+### 2B: Alignment:
 bwa mem
-### post processing: 
-picard markduplicate, 
-picard collectinsertmetrics, 
+### 2C: Filter and calculate PBC:
+picard MarkDuplicates
+picard CollectAlignmentSummaryMetrics
+picard CollectInsertSizeMetrics
+
 samtools MT removal, low quality removal, unmapped/unpaired/not proper paired removal
-### shift reads:
-
-### post qc: 
-
-### generate summary metrics: 
 % mapped, % chrM, % dup, % after all filtering
+PBC1, PBC2, and NRF
+
+### 2D: Shift reads:
+perl scripts
 
 ## Core analysis
-### peak calling: 
-macs2 shift and extend mode, narrowpeak with summit, 
-Homer, 
+### 3: peak calling:
+macs2 shift and extend mode, narrowpeak with summit, broad mode 
 HMMRATAC
 
 ## Advanced analysis
-### peak anno and comparison: 
-upsetplot, 
+### peak anno and comparison:
+upsetplot,
 ChIPseeker
 ### Diff peak analysis:
-### motif scan: 
-FIMO, 
+### motif scan:
+FIMO,
 Homer
-### footprint: 
+### footprint:
 HINT-ATAC
-
