@@ -78,7 +78,12 @@ process '0A_get_software_versions' {
 
     script:
     """
-    echo "$workflow.manifest.version" &> v_ngi_methylseq.txt
+    echo "$workflow.commandLine" &> cmd_line.txt
+    ## need to update config to keep version up to date
+    echo "$workflow.manifest.version" &> v_atac_nf.txt
+    ## only if run directly from github repo
+    echo "$workflow.repository" "$workflow.commitId" &> v_git_repo_version_atac_nf.txt
+    
     echo "$workflow.nextflow.version" &> v_nextflow.txt
     fastqc --version &> v_fastqc.txt
     samtools --version &> v_samtools.txt
