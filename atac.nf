@@ -148,7 +148,7 @@ process '1B_trim' {
     file('*.log') into ch_trimmomatic_results_for_multiqc 
      
     script:
-    adapter = params.adapter == 'atac' ? '$baseDir/data/NexteraPE-PE.fa' : '$baseDir/data/TruSeq3-PE-2.fa' 
+    adapter = params.adapter == 'atac' ? "$baseDir/data/NexteraPE-PE.fa" : "$baseDir/data/TruSeq3-PE-2.fa" 
     if ( params.trim ){
        """
        trimmomatic PE -threads ${task.cpus} \\
