@@ -22,7 +22,7 @@ params.samplesheet= "$baseDir/data/samplesheet.csv"
 params.trim       = true
 params.single_end = false 
 params.blacklist  = "$baseDir/data/mm10.blacklist.bed"
-params.adapter    = "$baseDir/data/NexteraPE-PE.fa"
+params.adapter    = "atac"
 params.shift      = "$baseDir/bin/ATAC_BAM_shifter_gappedAlign.pl"
 params.hmmratacjar= "$baseDir/bin/HMMRATAC_V1.2.10_exe.jar"
 params.macs2qval  = 0.00001
@@ -148,7 +148,7 @@ process '1B_trim' {
     file('*.log') into ch_trimmomatic_results_for_multiqc 
      
     script:
-    adapter = params.adapter
+    adapter = params.adapter == 'atac' ? '$baseDir/data/NexteraPE-PE.fa' : '$baseDir/data/TruSeq3-PE-2.fa' 
     if ( params.trim ){
        """
        trimmomatic PE -threads ${task.cpus} \\
