@@ -298,7 +298,7 @@ process '2C_filter_pbc_bam' {
 process '2D_shift_bam' {
   tag "$name"
   label 'bismark'
-  publishDir "${params.outdir}/ShiftedBamFiles", mode: 'symlink'
+  publishDir "${params.outdir}/ShiftedBamFiles", mode: 'copy'
 
   input:
       set val(name), file(bam), file(bai) from ch_ddup_bam
@@ -485,6 +485,7 @@ process '5B_BAMtoBigWig' {
     script:
     effectiveGenomeSize = params.species == 'mm10' ? '2652783500' : '2913022398'
     // for mm10 and hg38 currently
+    // for visualization purpose, default -binSize 50
     blacklist = params.blacklist == '' ? '' : "--blackListFileName ${blacklist}"
     """
     bamCoverage -b ${bam} -o ${name}.bw -p ${task.cpus} --normalizeUsing RPGC --effectiveGenomeSize $effectiveGenomeSize
