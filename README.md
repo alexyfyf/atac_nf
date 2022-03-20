@@ -17,7 +17,8 @@
     + [motif scan:](#motif-scan-)
     + [footprint:](#footprint-)
 
-# ATAC-seq pipeline
+# ATAC-seq pipeline 
+[![DOI](https://zenodo.org/badge/285426898.svg)](https://zenodo.org/badge/latestdoi/285426898)
 
 # General
 Refer to this review paper:
