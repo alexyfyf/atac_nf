@@ -21,33 +21,44 @@ params.species    = "mm10"
 params.samplesheet= "$baseDir/data/samplesheet.csv"
 params.trim       = true
 params.single_end = false 
-params.blacklist  = "$baseDir/data/mm10.blacklist.bed"
+params.blacklist  = "$baseDir/data/mm10-blacklist.bed"
 params.adapter    = "atac"
 params.shift      = "$baseDir/bin/ATAC_BAM_shifter_gappedAlign.pl"
 params.hmmratacjar= "$baseDir/bin/HMMRATAC_V1.2.10_exe.jar"
 params.macs2qval  = 0.00001
 params.hmmratac   = false
 
+// add a switch for choosing reference and blacklist
+
+def params.blacklist = switch(params.species) {
+    case 'mm10'  -> '$baseDir/data/mm10-blacklist.bed'
+    case 'hg38'  -> '$baseDir/data/hg38-blacklist.bed'
+}
+
+def params.effectiveGenomeSize = switch(params.species) {
+    case 'mm10'  -> '2652783500'
+    case 'hg38'  -> '2913022398'
+}
+
 log.info """\
-R R B S -  N F    v 1.0
+A T A C -  N F    v 1.0
 ================================
-reads    	: $params.reads
+reads    	    : $params.reads
 fasta           : $params.fasta
-outdir   	: $params.outdir
-aligner		: $params.aligner
+outdir   	    : $params.outdir
+aligner		    : $params.aligner
 species         : $params.species
-samplesheet	: $params.samplesheet
+samplesheet	    : $params.samplesheet
 trim            : $params.trim
 single_end      : $params.single_end
 blacklist       : $params.blacklist
 adapter         : $params.adapter
-shiftscript	: $params.shift
+shiftscript	    : $params.shift
 HMMRATAC        : $params.hmmratac
-MACS2_qval	: $params.macs2qval
-
-
-
+MACS2_qval	    : $params.macs2qval
+GenomeSize      : $params.effectiveGenomeSize
 """
+
 
 /*
  *  Parse the input parameters
@@ -137,7 +148,7 @@ process '1A_pre_fastqc' {
  */
 process '1B_trim' {
     tag "$name"
-    label 'bismark'
+    label 'large'
     publishDir "${params.outdir}/trim"
 
     input:
@@ -191,7 +202,7 @@ process '1C_post_fastqc' {
 
 process '2A_index_genome' {
   tag "$fasta.baseName"
-  label 'bismark'
+  label 'large'
 
   input:
       file fasta from fasta_ch
@@ -213,7 +224,7 @@ bwa_base = params.fasta.substring(lastPath+1)
 
 process '2B_mapping' {
   tag "$name"
-  label 'bismark'
+  label 'large'
   publishDir "${params.outdir}/RawBamFiles", mode: 'symlink'
 
   input:
@@ -237,7 +248,7 @@ process '2B_mapping' {
 
 process '2C_filter_pbc_bam' {
   tag "$name"
-  label 'bismark'
+  label 'large'
   publishDir "${params.outdir}/FilteredBamFiles", mode: 'copy'
 
   input:
@@ -297,7 +308,7 @@ process '2C_filter_pbc_bam' {
 
 process '2D_shift_bam' {
   tag "$name"
-  label 'bismark'
+  label 'large'
   publishDir "${params.outdir}/ShiftedBamFiles", mode: 'copy'
 
   input:
@@ -325,7 +336,7 @@ process '2D_shift_bam' {
  */
 process '3A_macs2' {
     publishDir "${params.outdir}/macs2", mode: 'copy'
-    label 'bismark'
+    label 'large'
 
     input:
     set val(name), file(bam), file(bai) from ch_shifted_bam_macs2
@@ -353,7 +364,7 @@ process '3A_macs2' {
  */
 process '3B_hmmratac' {
     publishDir "${params.outdir}/hmmratac", mode: 'copy'
-    label 'bismark'
+    label 'large'
 
     input:
     set val(name), file(bam), file(bai) from ch_shifted_bam_hmmratac
@@ -413,7 +424,8 @@ process '4A_FRiP' {
 
     input:
     set val(name), file(bam), file(bai), file(bed) from ch_shifted_bam_frip.join(ch_macs2_frip)
-    //set val(name), file(bed) from ch_macs2_frip
+    // set val(name), file(bed) from ch_macs2_frip
+    // blacklist = params.species == 'mm10' ? '${baseDir}/data/mm10-blacklist.bed' : '${baseDir}/data/hg38-blacklist.bed'
     file(blacklist) from blacklist
     
     output:
@@ -473,7 +485,7 @@ process '5A_faidx' {
  */
 process '5B_BAMtoBigWig' {
     tag "$name"
-    label 'bismark'
+    label 'large'
     publishDir "${params.outdir}/bigwig", mode: 'copy'
 
     input:
@@ -486,7 +498,8 @@ process '5B_BAMtoBigWig' {
     effectiveGenomeSize = params.species == 'mm10' ? '2652783500' : '2913022398'
     // for mm10 and hg38 currently
     // for visualization purpose, default -binSize 50
-    blacklist = params.blacklist == '' ? '' : "--blackListFileName ${blacklist}"
+    blacklist = params.species == 'mm10' ? '--blackListFileName ${baseDir}/data/mm10-blacklist.bed' : '--blackListFileName ${baseDir}/data/hg38-blacklist.bed'
+    // blacklist = params.blacklist == '' ? '' : "--blackListFileName ${blacklist}"
     """
     bamCoverage -b ${bam} -o ${name}.bw -p ${task.cpus} --normalizeUsing RPGC --effectiveGenomeSize $effectiveGenomeSize
  
@@ -502,7 +515,7 @@ process '5B_BAMtoBigWig' {
 // */
 //process '4c_toRSummary' {
 //    tag "summaryplot"
-//    label 'bismark'
+//    label 'large'
 //    publishDir "${params.outdir}/summaryplot", mode: 'copy'
 //
 //    input:
