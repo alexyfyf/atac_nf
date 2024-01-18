@@ -21,7 +21,6 @@ params.species    = "mm10"
 params.samplesheet= "$baseDir/data/samplesheet.csv"
 params.trim       = true
 params.single_end = false 
-params.blacklist  = "$baseDir/data/mm10-blacklist.bed"
 params.adapter    = "atac"
 params.shift      = "$baseDir/bin/ATAC_BAM_shifter_gappedAlign.pl"
 params.hmmratacjar= "$baseDir/bin/HMMRATAC_V1.2.10_exe.jar"
@@ -30,15 +29,26 @@ params.hmmratac   = false
 
 // add a switch for choosing reference and blacklist
 
-def params.blacklist = switch(params.species) {
-    case 'mm10'  -> '$baseDir/data/mm10-blacklist.bed'
-    case 'hg38'  -> '$baseDir/data/hg38-blacklist.bed'
-}
+def blacklists = [
+    'mm10': "$baseDir/data/mm10-blacklist.bed",
+    'hg38': "$baseDir/data/hg38-blacklist.bed"
+]
+// use mm10 default
+def blacklist = blacklists.get(params.species, "$baseDir/data/mm10-blacklist.bed")
 
-def params.effectiveGenomeSize = switch(params.species) {
-    case 'mm10'  -> '2652783500'
-    case 'hg38'  -> '2913022398'
-}
+def effectiveGenomeSizes = [
+    'mm10': "2652783500",
+    'hg38': "2913022398"
+]
+// use mm10 default
+def effectiveGenomeSize = effectiveGenomeSizes.get(params.species, "2652783500")
+
+def macs2gsizes = [
+    'mm10': "mm",
+    'hg38': "hs"
+]
+// use mm10 default
+def macs2gsize = macs2gsizes.get(params.species, "mm")
 
 log.info """\
 A T A C -  N F    v 1.0
@@ -51,14 +61,14 @@ species         : $params.species
 samplesheet	    : $params.samplesheet
 trim            : $params.trim
 single_end      : $params.single_end
-blacklist       : $params.blacklist
+blacklist       : $blacklist
 adapter         : $params.adapter
 shiftscript	    : $params.shift
 HMMRATAC        : $params.hmmratac
 MACS2_qval	    : $params.macs2qval
-GenomeSize      : $params.effectiveGenomeSize
+MACS2_gsize     : $macs2gsize
+GenomeSize      : $effectiveGenomeSize
 """
-
 
 /*
  *  Parse the input parameters
@@ -70,7 +80,7 @@ Channel
 
 samplesheet     = file(params.samplesheet)
 species         = Channel.from(params.species)
-blacklist       = file(params.blacklist)
+blacklist       = file(blacklist)
 shift           = file(params.shift)
 hmmratacjar     = file(params.hmmratacjar)
 
@@ -351,11 +361,11 @@ process '3A_macs2' {
     file ('*_broad_peaks.xls')
         
     script:
-    species = params.species == 'mm10' ? 'mm' : 'hg'
+    
     """
     bedtools bamtobed -i $bam > ${name}_pe.bed 
-    macs2 callpeak -t ${name}_pe.bed -n ${name}_narrow -f BED -g ${species} -q 0.01 --nomodel --shift -75 --extsize 150 --call-summits --keep-dup all
-    macs2 callpeak -t ${name}_pe.bed -n ${name}_broad -f BED -g ${species} -q 0.01 --nomodel --shift -75 --extsize 150 --keep-dup all --broad
+    macs2 callpeak -t ${name}_pe.bed -n ${name}_narrow -f BED -g ${macs2gsize} -q 0.01 --nomodel --shift -75 --extsize 150 --call-summits --keep-dup all
+    macs2 callpeak -t ${name}_pe.bed -n ${name}_broad -f BED -g ${macs2gsize} -q 0.01 --nomodel --shift -75 --extsize 150 --keep-dup all --broad
     """
 }
 
@@ -495,10 +505,10 @@ process '5B_BAMtoBigWig' {
     file "*.bw"
 
     script:
-    effectiveGenomeSize = params.species == 'mm10' ? '2652783500' : '2913022398'
+    // effectiveGenomeSize = params.species == 'mm10' ? '2652783500' : '2913022398'
     // for mm10 and hg38 currently
     // for visualization purpose, default -binSize 50
-    blacklist = params.species == 'mm10' ? '--blackListFileName ${baseDir}/data/mm10-blacklist.bed' : '--blackListFileName ${baseDir}/data/hg38-blacklist.bed'
+    // blacklist = params.species == 'mm10' ? '--blackListFileName ${baseDir}/data/mm10-blacklist.bed' : '--blackListFileName ${baseDir}/data/hg38-blacklist.bed'
     // blacklist = params.blacklist == '' ? '' : "--blackListFileName ${blacklist}"
     """
     bamCoverage -b ${bam} -o ${name}.bw -p ${task.cpus} --normalizeUsing RPGC --effectiveGenomeSize $effectiveGenomeSize
