@@ -178,10 +178,10 @@ process '1B_trim' {
             
        """
     } else {
-        """"
+        """
         mv ${reads[0]} ${name}_1P.fastq.gz
         mv ${reads[1]} ${name}_2P.fastq.gz
-        """"
+        """
     }
 }
 
