@@ -188,7 +188,7 @@ process '1B_trim' {
     } else {
         """
         cat ${reads[0]} | gzip -c > ${name}_1P.fastq.gz
-        cat ${reads[0]} | gzip -c > ${name}_2P.fastq.gz
+        cat ${reads[1]} | gzip -c > ${name}_2P.fastq.gz
         echo 'No trimming required!' > ${name}_trim.log
         """
     }
