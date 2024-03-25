@@ -170,6 +170,8 @@ process '1B_trim' {
      
     script:
     adapter = params.adapter == 'atac' ? "$baseDir/data/NexteraPE-PE.fa" : "$baseDir/data/TruSeq3-PE-2.fa" 
+    boolean isGzipped = reads[0].getName().endsWith('.gz') // only check read1, in case single read data
+
     if ( params.trim ){
        """
        trimmomatic PE -threads ${task.cpus} \\
@@ -177,10 +179,16 @@ process '1B_trim' {
                            ILLUMINACLIP:${adapter}:2:30:10:8:true SLIDINGWINDOW:4:15 MINLEN:36 2> ${name}_trim.log
             
        """
-    } else {
+    } else if (isGzipped) {
         """
         mv ${reads[0]} ${name}_1P.fastq.gz
         mv ${reads[1]} ${name}_2P.fastq.gz
+        echo 'No trimming required!' > ${name}_trim.log
+        """
+    } else {
+        """
+        gzip ${reads[0]} > ${name}_1P.fastq.gz
+        gzip ${reads[1]} > ${name}_2P.fastq.gz
         echo 'No trimming required!' > ${name}_trim.log
         """
     }
