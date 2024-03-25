@@ -181,14 +181,14 @@ process '1B_trim' {
        """
     } else if (isGzipped) {
         """
-        mv ${reads[0]} ${name}_1P.fastq.gz
-        mv ${reads[1]} ${name}_2P.fastq.gz
+        cp ${reads[0]} ${name}_1P.fastq.gz
+        cp ${reads[1]} ${name}_2P.fastq.gz
         echo 'No trimming required!' > ${name}_trim.log
         """
     } else {
         """
-        gzip ${reads[0]} > ${name}_1P.fastq.gz
-        gzip ${reads[1]} > ${name}_2P.fastq.gz
+        cp ${reads[0]} | gzip -c > ${name}_1P.fastq.gz
+        cp ${reads[0]} | gzip -c > ${name}_2P.fastq.gz
         echo 'No trimming required!' > ${name}_trim.log
         """
     }
