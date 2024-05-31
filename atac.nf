@@ -30,11 +30,11 @@ params.hmmratac   = false
 // add a switch for choosing reference and blacklist
 
 def blacklists = [
-    'mm10': "$baseDir/data/mm10-blacklist.bed",
-    'hg38': "$baseDir/data/hg38-blacklist.bed"
+    'mm10': "$baseDir/data/mm10-blacklist.v2.bed",
+    'hg38': "$baseDir/data/hg38-blacklist.v2.bed"
 ]
 // use mm10 default
-def blacklist = blacklists.get(params.species, "$baseDir/data/mm10-blacklist.bed")
+def blacklist = blacklists.get(params.species, "$baseDir/data/mm10-blacklist.v2.bed")
 
 def effectiveGenomeSizes = [
     'mm10': "2652783500",
