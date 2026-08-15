@@ -41,16 +41,18 @@ process LIBRARY_COMPLEXITY {
         > ${prefix}_pbc.txt
 
     # MultiQC custom content: a one-row table per sample, merged across samples by MultiQC.
-    cat <<-'MQCHEADER' > ${prefix}_pbc_mqc.tsv
-	# id: 'atac_library_complexity'
-	# section_name: 'Library complexity (ENCODE PBC)'
-	# description: 'Computed from the duplicate-marked BAM with chrM excluded. NRF = distinct/total, PBC1 = one-read-pair/distinct, PBC2 = one-read-pair/two-read-pairs.'
-	# format: 'tsv'
-	# plot_type: 'table'
-	# pconfig:
-	#     namespace: 'ATAC'
-	Sample	TotalReadPairs	DistinctReadPairs	OneReadPair	TwoReadPairs	NRF	PBC1	PBC2
-	MQCHEADER
+    # Written with printf rather than a here-doc: a tab-indented here-doc would defeat the
+    # indent stripping Nextflow applies to this script block.
+    printf '%b\\n' \\
+        "# id: 'atac_library_complexity'" \\
+        "# section_name: 'Library complexity (ENCODE PBC)'" \\
+        "# description: 'Computed from the duplicate-marked BAM with chrM excluded. NRF = distinct/total, PBC1 = one-read-pair/distinct, PBC2 = one-read-pair/two-read-pairs.'" \\
+        "# format: 'tsv'" \\
+        "# plot_type: 'table'" \\
+        "# pconfig:" \\
+        "#     namespace: 'ATAC'" \\
+        "Sample\\tTotalReadPairs\\tDistinctReadPairs\\tOneReadPair\\tTwoReadPairs\\tNRF\\tPBC1\\tPBC2" \\
+        > ${prefix}_pbc_mqc.tsv
     awk -v s="${prefix}" 'BEGIN{OFS="\\t"}{print s, \$1, \$2, \$3, \$4, \$5, \$6, \$7}' \\
         ${prefix}_pbc.txt >> ${prefix}_pbc_mqc.tsv
 

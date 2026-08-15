@@ -46,16 +46,18 @@ process FRIP_SCORE {
         | awk 'BEGIN{OFS="\\t"}{ t=(\$4>0 ? \$4 : 1); print \$1, \$2, \$3, \$4, \$1/t, \$2/t, \$3/t }' \\
         > ${prefix}.metric
 
-    cat <<-'MQCHEADER' > ${prefix}_frip_mqc.tsv
-	# id: 'atac_frip'
-	# section_name: 'Signal distribution (FRiP)'
-	# description: 'Fraction of shifted reads falling in called peaks, in the ENCODE blacklist, and on the mitochondrial genome.'
-	# format: 'tsv'
-	# plot_type: 'table'
-	# pconfig:
-	#     namespace: 'ATAC'
-	Sample	ReadsInPeaks	ReadsInBlacklist	ReadsInMT	TotalReads	FRiP	BlacklistFraction	MTFraction
-	MQCHEADER
+    # Written with printf rather than a here-doc: a tab-indented here-doc would defeat the
+    # indent stripping Nextflow applies to this script block.
+    printf '%b\\n' \\
+        "# id: 'atac_frip'" \\
+        "# section_name: 'Signal distribution (FRiP)'" \\
+        "# description: 'Fraction of shifted reads falling in called peaks, in the ENCODE blacklist, and on the mitochondrial genome.'" \\
+        "# format: 'tsv'" \\
+        "# plot_type: 'table'" \\
+        "# pconfig:" \\
+        "#     namespace: 'ATAC'" \\
+        "Sample\\tReadsInPeaks\\tReadsInBlacklist\\tReadsInMT\\tTotalReads\\tFRiP\\tBlacklistFraction\\tMTFraction" \\
+        > ${prefix}_frip_mqc.tsv
     awk -v s="${prefix}" 'BEGIN{OFS="\\t"}{print s, \$1, \$2, \$3, \$4, \$5, \$6, \$7}' \\
         ${prefix}.metric >> ${prefix}_frip_mqc.tsv
 

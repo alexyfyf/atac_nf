@@ -52,50 +52,11 @@ process TSS_ENRICHMENT {
         --outFileName tss_heatmap.pdf \\
         --refPointLabel TSS
 
-    # Reshape deeptools' profile table into a MultiQC line plot. The exact layout of
-    # tss_profile.tab varies between deeptools releases, so rather than indexing fixed rows
-    # this keeps only rows whose values are entirely numeric, and rebuilds the x-axis from
-    # the window and bin size we asked for.
-    python3 - <<'PY'
-    UPSTREAM = $window
-    BIN_SIZE = $bin_size
-
-    rows = [line.rstrip("\\n").split("\\t") for line in open("tss_profile.tab") if line.strip()]
-
-    series = []
-    for row in rows:
-        label = row[0].strip()
-        values = []
-        for cell in row[1:]:
-            cell = cell.strip()
-            if not cell:
-                continue
-            try:
-                values.append(float(cell))
-            except ValueError:
-                values = []
-                break
-        if label and values:
-            series.append((label, values))
-
-    with open("tss_profile_mqc.tsv", "w") as out:
-        out.write("# id: 'atac_tss_enrichment'\\n")
-        out.write("# section_name: 'TSS enrichment'\\n")
-        out.write("# description: 'Mean coverage around annotated transcription start sites. "
-                  "A sharp peak at 0 indicates good ATAC signal-to-noise.'\\n")
-        out.write("# format: 'tsv'\\n")
-        out.write("# plot_type: 'linegraph'\\n")
-        out.write("# pconfig:\\n")
-        out.write("#     namespace: 'ATAC'\\n")
-        out.write("#     xlab: 'Distance from TSS (bp)'\\n")
-        out.write("#     ylab: 'Mean coverage'\\n")
-        if series:
-            n = len(series[0][1])
-            positions = [str(-UPSTREAM + i * BIN_SIZE) for i in range(n)]
-            out.write("Sample\\t" + "\\t".join(positions) + "\\n")
-            for label, values in series:
-                out.write(label + "\\t" + "\\t".join(str(v) for v in values) + "\\n")
-    PY
+    tss_profile_to_multiqc.py \\
+        --input tss_profile.tab \\
+        --output tss_profile_mqc.tsv \\
+        --window $window \\
+        --bin-size $bin_size
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
