@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  NXF_ANSI_LOG: false
+
+jobs:
+  config:
+    name: Config parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Resolve every profile
+        run: |
+          for p in test docker singularity apptainer conda mamba wave slurm debug; do
+            echo "::group::profile $p"
+            nextflow config -profile "$p" > /dev/null
+            echo "::endgroup::"
+          done
+      - name: Validate JSON schemas
+        run: |
+          python -c "import json; json.load(open('nextflow_schema.json'))"
+          python -c "import json; json.load(open('assets/schema_input.json'))"
+
+  stub:
+    name: Stub run (Nextflow ${{ matrix.NXF_VER }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        NXF_VER: ["24.04.0", "latest-stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "${{ matrix.NXF_VER }}"
+      - name: Run the pipeline in stub mode
+        run: nextflow run . -profile test --outdir ./results -stub-run
+      - name: Confirm -resume caches everything
+        run: |
+          nextflow run . -profile test --outdir ./results -stub-run -resume 2>&1 | tee resume.log
+          if grep -qE '\| [0-9]+ of [0-9]+$' resume.log; then
+            echo "Some tasks were not cached on resume:"
+            grep -E '\| [0-9]+ of [0-9]+$' resume.log
+            exit 1
+          fi
+
+  nf-test:
+    name: nf-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Install nf-test
+        run: |
+          wget -qO- https://get.nf-test.com | bash
+          sudo mv nf-test /usr/local/bin/
+      - name: Run the test suite
+        run: nf-test test --verbose
+
+  full:
+    name: Full run with containers
+    runs-on: ubuntu-latest
+    # The only job that actually pulls images and runs the tools, so it is also the only
+    # place the container contents (notably perl for the Tn5 shift step) get exercised.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Run the pipeline for real
+        run: nextflow run . -profile test,docker --outdir ./results
+      - name: Check the expected outputs exist and are non-empty
+        run: |
+          set -euo pipefail
+          for f in \
+            MultiQC/multiqc_report.html \
+            pipeline_info/software_versions.yml \
+            FilteredBamFiles/sample1.final.bam \
+            FilteredBamFiles/sample1_pbc.txt \
+            ShiftedBamFiles/sample1_shifted_sorted.bam \
+            macs2/sample1_narrow_peaks.narrowPeak \
+            FRiP/sample1.metric \
+            bigwig/sample1.bw
+          do
+            test -s "results/$f" || { echo "missing or empty: results/$f"; exit 1; }
+          done
+          echo "FRiP metrics:"; cat results/FRiP/*.metric
+          echo "Library complexity:"; cat results/FilteredBamFiles/*_pbc.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results
+          path: |
+            results/MultiQC
+            results/pipeline_info
+          retention-days: 7

@@ -1,0 +1,183 @@
+nextflow_pipeline {
+
+    name "atac_nf pipeline"
+    script "../main.nf"
+
+    test("paired-end run produces every expected output") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            assert workflow.success
+
+            // Every process ran for both samples, plus the two single-instance reference tasks.
+            assert workflow.trace.tasks().size() == 37
+
+            // Reporting
+            assert path("$outputDir/MultiQC/multiqc_report.html").exists()
+            assert path("$outputDir/pipeline_info/software_versions.yml").exists()
+
+            // Raw and trimmed FastQC are kept apart by ext.prefix, and both reach the report.
+            assert path("$outputDir/pre_fastqc/sample1_raw_fastqc.html").exists()
+            assert path("$outputDir/post_fastqc/sample1_trimmed_fastqc.html").exists()
+            assert path("$outputDir/pre_fastqc/zips/sample1_raw_fastqc.zip").exists()
+
+            // Trim logs are published even though the FASTQs are not (--save_trimmed false)
+            assert path("$outputDir/trim/sample1_trim.log").exists()
+            assert !path("$outputDir/trim/sample1_1P.fastq.gz").exists()
+
+            // Alignment QC keeps the raw-vs-final distinction
+            assert path("$outputDir/FilteredBamFiles/sample1.flagstat").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1.final.flagstat").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1_dups.txt").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1_pbc.txt").exists()
+
+            assert path("$outputDir/ShiftedBamFiles/sample1_shifted_sorted.bam").exists()
+
+            // Narrow and broad peaks are separate MACS invocations
+            assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
+            assert path("$outputDir/macs2/sample1_broad_peaks.broadPeak").exists()
+
+            assert path("$outputDir/FRiP/sample1.metric").exists()
+            assert path("$outputDir/bigwig/sample1.bw").exists()
+
+            // hmmratac is off by default
+            assert !path("$outputDir/hmmratac").exists()
+        }
+    }
+
+    test("single-end samples are handled per sample") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_single_end.csv"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/FilteredBamFiles/se1.final.bam").exists()
+            // No insert-size metrics for single-end libraries
+            assert !path("$outputDir/FilteredBamFiles/se1.insert_size_metrics").exists()
+        }
+    }
+
+    test("--hmmratac adds MACS3 hmmratac peaks") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir   = "$outputDir"
+                hmmratac = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/hmmratac").exists()
+        }
+    }
+
+    test("--trim false skips trimming entirely") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                trim   = false
+            }
+        }
+
+        then {
+            assert workflow.success
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 37.
+            assert workflow.trace.tasks().size() == 33
+            assert !path("$outputDir/trim").exists()
+            assert !path("$outputDir/post_fastqc").exists()
+            // ...and the untrimmed reads still make it all the way through.
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("the legacy --reads glob still works") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = null
+                reads  = "$projectDir/tests/data/sample*_R{1,2}.fq.gz"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("an unknown genome is an error, not a silent fallback to mm10") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                genome = "rn6"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("Unknown genome 'rn6'") }
+        }
+    }
+
+    test("a duplicate sample ID is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_duplicate.csv"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.join('\n').contains("Duplicate sample ID") ||
+                   (workflow.errorReport ?: '').contains("Duplicate sample ID")
+        }
+    }
+
+    test("an unsupported aligner is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir  = "$outputDir"
+                aligner = "bowtie2"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("--aligner must be") }
+        }
+    }
+}

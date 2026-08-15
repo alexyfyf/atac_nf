@@ -35,7 +35,19 @@ def readSamplesheet(samplesheet) {
     return Channel
         .fromPath(sheet)
         .splitCsv(header: true, sep: ',', strip: true)
-        .map { row -> parseSamplesheetRow(row, seen_ids) }
+        .map { row -> parseSamplesheetRow(row, seen_ids, sheet.parent) }
+}
+
+// Relative FASTQ paths are resolved against the samplesheet's own directory, which keeps a
+// samplesheet portable regardless of where the pipeline is launched from. Absolute paths and
+// remote URIs are used as given.
+def resolveFastq(path, base) {
+    // Test the raw string, not file(path): file() resolves a relative path against the launch
+    // directory and hands back an absolute one, so isAbsolute() would always be true.
+    if (path.contains('://') || path.startsWith('/')) {
+        return file(path, checkIfExists: true)
+    }
+    return file(base.resolve(path), checkIfExists: true)
 }
 
 def readGlob(reads_glob) {
@@ -52,7 +64,7 @@ def readGlob(reads_glob) {
         }
 }
 
-def parseSamplesheetRow(row, seen_ids) {
+def parseSamplesheetRow(row, seen_ids, base) {
     ['sample', 'fastq_1'].each { key ->
         if (!row.containsKey(key)) {
             error("Samplesheet is missing the required column '${key}'. Columns found: ${row.keySet().join(', ')}")
@@ -78,9 +90,9 @@ def parseSamplesheetRow(row, seen_ids) {
         condition : row.condition ?: null,
     ]
 
-    def fastqs = [ file(row.fastq_1, checkIfExists: true) ]
+    def fastqs = [ resolveFastq(row.fastq_1, base) ]
     if (!single_end) {
-        fastqs << file(row.fastq_2, checkIfExists: true)
+        fastqs << resolveFastq(row.fastq_2, base)
     }
     return [ meta, fastqs ]
 }

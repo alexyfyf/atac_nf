@@ -45,10 +45,11 @@ process PICARD_COLLECTMULTIPLEMETRICS {
 
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
+    // Mirror the real script: no insert-size output for single-end libraries.
+    def insert = meta.single_end ? '' : "touch ${prefix}.insert_size_metrics ${prefix}.insert_size_histogram.pdf"
     """
     touch ${prefix}.alignment_summary_metrics
-    touch ${prefix}.insert_size_metrics
-    touch ${prefix}.insert_size_histogram.pdf
+    $insert
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

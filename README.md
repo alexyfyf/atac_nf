@@ -1,69 +1,120 @@
-- [ATAC-seq pipeline](#atac-seq-pipeline)
-- [General](#general)
-- [Details](#details)
-  * [Pre-analysis](#pre-analysis)
-    + [pre-QC:](#pre-qc-)
-    + [trim:](#trim-)
-    + [alignment:](#alignment-)
-    + [post processing:](#post-processing-)
-    + [shift reads:](#shift-reads-)
-    + [post qc:](#post-qc-)
-    + [generate summary metrics:](#generate-summary-metrics-)
-  * [Core analysis](#core-analysis)
-    + [peak calling:](#peak-calling-)
-  * [Advanced analysis](#advanced-analysis)
-    + [peak anno and comparison:](#peak-anno-and-comparison-)
-    + [Diff peak analysis:](#diff-peak-analysis-)
-    + [motif scan:](#motif-scan-)
-    + [footprint:](#footprint-)
+# ATAC-seq pipeline
 
-# ATAC-seq pipeline 
 [![DOI](https://zenodo.org/badge/285426898.svg)](https://zenodo.org/badge/latestdoi/285426898)
+[![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.04.0-brightgreen.svg)](https://www.nextflow.io/)
 
-# General
-Refer to this review paper:
-Yan, F., Powell, D.R., Curtis, D.J. et al. From reads to insight: a hitchhiker’s guide to ATAC-seq data analysis. Genome Biol 21, 22 (2020).
-https://doi.org/10.1186/s13059-020-1929-3
+A Nextflow (DSL2) pipeline for ATAC-seq data analysis, following the workflow described in:
+
+> Yan, F., Powell, D.R., Curtis, D.J. et al. **From reads to insight: a hitchhiker's guide to
+> ATAC-seq data analysis.** *Genome Biol* **21**, 22 (2020).
+> https://doi.org/10.1186/s13059-020-1929-3
+
 ![Image of workflow](https://media.springernature.com/full/springer-static/image/art%3A10.1186%2Fs13059-020-1929-3/MediaObjects/13059_2020_1929_Fig2_HTML.png?as=webp)
 
-Also the ENCODE specification [here](https://docs.google.com/document/d/1f0Cm4vRyDQDu0bMehHD7P7KOMxTOP-HiNoIvL1VcBt8/edit).
+Peak-calling and QC choices follow the
+[ENCODE ATAC-seq specification](https://docs.google.com/document/d/1f0Cm4vRyDQDu0bMehHD7P7KOMxTOP-HiNoIvL1VcBt8/edit).
 
-# Details
-## 1&2: Pre-analysis
-### 1A: Pre-QC:
-fastqc
-### 1B: Trim:
-trimmomatic
-### 1C: Post-QC
-fastqc
-### 2A: Index Genome
-bwa index
-### 2B: Alignment:
-bwa mem
-### 2C: Filter and calculate PBC:
-picard MarkDuplicates
-picard CollectAlignmentSummaryMetrics
-picard CollectInsertSizeMetrics
+## Quick start
 
-samtools MT removal, low quality removal, unmapped/unpaired/not proper paired removal
-% mapped, % chrM, % dup, % after all filtering
-PBC1, PBC2, and NRF
+Requires Nextflow ≥24.04 and one of Docker, Singularity/Apptainer or Conda.
 
-### 2D: Shift reads:
-perl scripts
+```bash
+# check the wiring without running any tool
+nextflow run alexyfyf/atac_nf -profile test,docker --outdir results -stub-run
 
-## Core analysis
-### 3: peak calling:
-macs2 shift and extend mode, narrowpeak with summit, broad mode 
-HMMRATAC
+# a real run
+nextflow run alexyfyf/atac_nf \
+    -profile docker \
+    --input samplesheet.csv \
+    --fasta /ref/mm10.fa \
+    --genome mm10 \
+    --outdir results
+```
+
+On a SLURM cluster:
+
+```bash
+nextflow run alexyfyf/atac_nf \
+    -profile slurm,singularity \
+    --input samplesheet.csv \
+    --fasta /ref/mm10.fa \
+    --genome mm10 \
+    --slurm_account myaccount \
+    --slurm_queue genomics \
+    --outdir results
+```
+
+### Samplesheet
+
+```csv
+sample,fastq_1,fastq_2,replicate,condition
+WT_1,/data/WT_1_R1.fq.gz,/data/WT_1_R2.fq.gz,1,WT
+WT_2,/data/WT_2_R1.fq.gz,/data/WT_2_R2.fq.gz,2,WT
+KO_1,/data/KO_1_R1.fq.gz,,1,KO
+```
+
+`sample` and `fastq_1` are required. An empty `fastq_2` marks that sample as single-end, so
+paired- and single-end samples can be mixed in one run. `replicate` and `condition` are optional
+and are carried through as metadata.
+
+The older glob interface still works: `--reads 'data/*_R{1,2}.fq.gz'` (add `--single_end` for
+single-end data).
+
+## Pipeline steps
+
+| Stage | Step | Tool |
+|---|---|---|
+| 1A | Pre-trim QC | FastQC |
+| 1B | Adapter and quality trimming | Trimmomatic |
+| 1C | Post-trim QC | FastQC |
+| 2A | Genome index | bwa / bwa-mem2 |
+| 2B | Alignment | bwa mem / bwa-mem2 mem |
+| 2C | Filter (`-F 1804 -q 30`, proper pairs) | samtools |
+| 2C | Duplicate marking | picard MarkDuplicates |
+| 2C | Alignment and insert-size metrics | picard CollectMultipleMetrics |
+| 2C | Library complexity (NRF, PBC1, PBC2) | samtools + bedtools |
+| 2D | Tn5 offset correction (+4/−5) | bundled perl script |
+| 3A | Narrow and broad peak calling | MACS3 |
+| 3B | Semi-supervised peak calling (optional) | MACS3 `hmmratac` |
+| 4A | Signal distribution (FRiP, blacklist, chrM) | bedtools + samtools |
+| 4B | Aggregate report | MultiQC |
+| 5A | Coverage tracks (RPGC, blacklist-filtered) | deeptools `bamCoverage` |
+
+## Key parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--input` | — | Samplesheet CSV (preferred input) |
+| `--reads` | — | Legacy FASTQ glob |
+| `--fasta` | — | **Required.** Reference genome FASTA |
+| `--genome` | — | `mm10` or `hg38`; supplies blacklist, MACS gsize and effective genome size |
+| `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
+| `--aligner_index` | — | Pre-built index directory; skips indexing |
+| `--trim` | `true` | Run trimmomatic |
+| `--adapter` | `atac` | `atac`/`nextera`, `truseq`, or a path to an adapter FASTA |
+| `--macs_qvalue` | `0.01` | MACS q-value cutoff |
+| `--macs_format` | `BED` | `BED` (Tn5 insertions) or `BAMPE` (fragments) |
+| `--hmmratac` | `false` | Also run MACS3 hmmratac |
+| `--blacklist` | genome default | Override the blacklist BED |
+| `--outdir` | `results` | Output directory |
+
+The full list, with types and help text, is in [`nextflow_schema.json`](nextflow_schema.json).
+See [docs/usage.md](docs/usage.md) for details and [docs/output.md](docs/output.md) for a
+description of the outputs.
+
+## Genome presets
+
+`mm10` and `hg38` are built in ([`conf/genomes.config`](conf/genomes.config)). To add a genome,
+extend that file rather than editing the workflow — or pass `--blacklist`, `--macs_gsize` and
+`--effective_genome_size` directly for a one-off run.
 
 ## Advanced analysis
-### peak anno and comparison:
-upsetplot,
-ChIPseeker
-### Diff peak analysis:
-### motif scan:
-FIMO,
-Homer
-### footprint:
-HINT-ATAC
+
+Not implemented here. For peak annotation, differential accessibility, motif enrichment and
+footprinting, [nf-core/atacseq](https://nf-co.re/atacseq) is a good complement — this pipeline's
+final BAMs and peak calls feed into those tools directly.
+
+## Citation
+
+If you use this pipeline, please cite the Genome Biology review above and the Zenodo DOI.
+Per-run tool versions are written to `results/pipeline_info/software_versions.yml`.
