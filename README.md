@@ -77,8 +77,13 @@ single-end data).
 | 3A | Narrow and broad peak calling | MACS3 |
 | 3B | Semi-supervised peak calling (optional) | MACS3 `hmmratac` |
 | 4A | Signal distribution (FRiP, blacklist, chrM) | bedtools + samtools |
-| 4B | Aggregate report | MultiQC |
 | 5A | Coverage tracks (RPGC, blacklist-filtered) | deeptools `bamCoverage` |
+| 6A | Consensus peak set across samples | bedtools |
+| 6B | Counts matrix over consensus peaks | featureCounts |
+| 6C | Sample QC (PCA, correlation) and differential accessibility | DESeq2 |
+| 6D | TSS enrichment profile *(needs `--gtf`)* | deeptools |
+| 6E | Nearest-gene peak annotation *(needs `--gtf`)* | bedtools `closest` |
+| 7A | Aggregate report | MultiQC |
 
 ## Key parameters
 
@@ -96,6 +101,10 @@ single-end data).
 | `--macs_format` | `BED` | `BED` (Tn5 insertions) or `BAMPE` (fragments) |
 | `--hmmratac` | `false` | Also run MACS3 hmmratac |
 | `--blacklist` | genome default | Override the blacklist BED |
+| `--gtf` | — | GTF annotation; enables TSS enrichment and peak annotation |
+| `--skip_consensus` | `false` | Skip consensus peaks, counts matrix and DESeq2 |
+| `--skip_deseq2` | `false` | Skip DESeq2 only |
+| `--skip_tss_enrichment` | `false` | Skip the TSS profile only |
 | `--outdir` | `results` | Output directory |
 
 The full list, with types and help text, is in [`nextflow_schema.json`](nextflow_schema.json).
@@ -108,11 +117,21 @@ description of the outputs.
 extend that file rather than editing the workflow — or pass `--blacklist`, `--macs_gsize` and
 `--effective_genome_size` directly for a one-off run.
 
-## Advanced analysis
+## Downstream analysis
 
-Not implemented here. For peak annotation, differential accessibility, motif enrichment and
-footprinting, [nf-core/atacseq](https://nf-co.re/atacseq) is a good complement — this pipeline's
-final BAMs and peak calls feed into those tools directly.
+With two or more samples the pipeline builds a consensus peak set, counts reads over it, and
+runs DESeq2 for sample-level QC (PCA, correlation heatmap) and normalised counts. Differential
+accessibility is tested only when the samplesheet describes **at least two conditions with at
+least two replicates each** — otherwise there is nothing to test, and the run reports that it
+skipped the comparison rather than emitting a meaningless result.
+
+Supplying `--gtf` additionally produces a TSS enrichment profile (an ENCODE QC metric, and the
+clearest single indicator of ATAC signal-to-noise) and annotates each consensus peak with its
+nearest gene and distance to that gene's TSS.
+
+Still not implemented: motif enrichment (HOMER/FIMO) and footprinting (HINT-ATAC).
+[nf-core/atacseq](https://nf-co.re/atacseq) covers those well, and this pipeline's shifted BAMs
+and consensus peaks feed straight into them.
 
 ## Citation
 

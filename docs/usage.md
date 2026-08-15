@@ -64,6 +64,12 @@ For an unlisted genome, supply the three values directly:
 --effective_genome_size 1345118429
 ```
 
+### Annotation
+
+`--gtf /ref/gencode.vM25.annotation.gtf` (plain or gzipped) unlocks two extra steps: the TSS
+enrichment profile and nearest-gene annotation of the consensus peaks. TSS positions are taken
+from `gene` features, using `gene_name` when present and falling back to `gene_id`.
+
 ### Reusing an index
 
 Indexing is the slowest setup step. Point at an existing index directory to skip it:

@@ -15,6 +15,7 @@ include { PREPARE_GENOME        } from './subworkflows/local/prepare_genome'
 include { ALIGN_READS           } from './subworkflows/local/align_reads'
 include { BAM_FILTER_QC         } from './subworkflows/local/bam_filter_qc'
 include { PEAK_CALLING          } from './subworkflows/local/peak_calling'
+include { DOWNSTREAM_ANALYSIS   } from './subworkflows/local/downstream_analysis'
 
 include { FASTQC as FASTQC_RAW  } from './modules/local/fastqc'
 include { FASTQC as FASTQC_TRIM } from './modules/local/fastqc'
@@ -79,6 +80,7 @@ workflow ATACSEQ {
     adapter         : ${adapter_path}
     blacklist       : ${blacklist_path}
     shiftscript     : ${params.shift}
+    gtf             : ${params.gtf ?: '(none: skipping TSS enrichment and peak annotation)'}
     HMMRATAC        : ${params.hmmratac}
     MACS_qvalue     : ${params.macs2qval ?: params.macs_qvalue}
     MACS_gsize      : ${macs_gsize}
@@ -166,6 +168,19 @@ workflow ATACSEQ {
     //
     DEEPTOOLS_BAMCOVERAGE(ch_shifted_bam, effective_genome_size, ch_blacklist)
     ch_versions = ch_versions.mix(DEEPTOOLS_BAMCOVERAGE.out.versions.first())
+
+    //
+    // PART 6: cross-sample analysis
+    //
+    DOWNSTREAM_ANALYSIS(
+        PEAK_CALLING.out.narrow_peak,
+        ch_shifted_bam,
+        DEEPTOOLS_BAMCOVERAGE.out.bigwig,
+        ch_blacklist,
+        params.gtf
+    )
+    ch_versions      = ch_versions.mix(DOWNSTREAM_ANALYSIS.out.versions)
+    ch_multiqc_files = ch_multiqc_files.mix(DOWNSTREAM_ANALYSIS.out.multiqc_files)
 
     //
     // Reporting

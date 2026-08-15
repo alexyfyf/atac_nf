@@ -16,8 +16,9 @@ nextflow_pipeline {
         then {
             assert workflow.success
 
-            // Every process ran for both samples, plus the two single-instance reference tasks.
-            assert workflow.trace.tasks().size() == 37
+            // Per-sample processes for two samples, plus the single-instance reference and
+            // cross-sample tasks.
+            assert workflow.trace.tasks().size() == 43
 
             // Reporting
             assert path("$outputDir/MultiQC/multiqc_report.html").exists()
@@ -48,8 +49,59 @@ nextflow_pipeline {
             assert path("$outputDir/FRiP/sample1.metric").exists()
             assert path("$outputDir/bigwig/sample1.bw").exists()
 
+            // Cross-sample analysis
+            assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks.saf").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks.counts.txt").exists()
+            assert path("$outputDir/differential/deseq2.normalised_counts.tsv").exists()
+
+            // GTF-driven steps (the test profile supplies one)
+            assert path("$outputDir/tss_enrichment/tss_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_profile_mqc.tsv").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+
             // hmmratac is off by default
             assert !path("$outputDir/hmmratac").exists()
+        }
+    }
+
+    test("without a GTF, TSS enrichment and annotation are skipped") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                gtf    = null
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/tss_enrichment").exists()
+            assert !path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // The consensus peak set does not depend on the GTF
+            assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
+        }
+    }
+
+    test("--skip_consensus drops the whole cross-sample stage") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir         = "$outputDir"
+                skip_consensus = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/consensus_peaks").exists()
+            assert !path("$outputDir/differential").exists()
+            // Per-sample results are unaffected
+            assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
         }
     }
 
@@ -102,8 +154,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 37.
-            assert workflow.trace.tasks().size() == 33
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 43.
+            assert workflow.trace.tasks().size() == 39
             assert !path("$outputDir/trim").exists()
             assert !path("$outputDir/post_fastqc").exists()
             // ...and the untrimmed reads still make it all the way through.

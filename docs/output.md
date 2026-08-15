@@ -15,6 +15,9 @@ results/
 ├── hmmratac/            MACS3 hmmratac peaks (only with --hmmratac)
 ├── FRiP/                Signal distribution metrics
 ├── bigwig/              RPGC-normalised coverage tracks
+├── consensus_peaks/     Consensus peak set, counts matrix, peak annotation
+├── differential/        DESeq2 QC and differential accessibility
+├── tss_enrichment/      TSS profile and heatmap (only with --gtf)
 ├── MultiQC/             Aggregate report
 └── pipeline_info/       Execution reports and software versions
 ```
@@ -70,6 +73,39 @@ strongly on the tissue.
 samtools, picard, and MACS. The library-complexity and FRiP tables appear as their own sections
 at the top — in the DSL1 pipeline those numbers were written to disk but never reached the
 report.
+
+## consensus_peaks
+
+| File | Description |
+|---|---|
+| `consensus_peaks.bed` | Union of all samples' narrow peaks, merged and blacklist-filtered |
+| `consensus_peaks.saf` | The same regions in featureCounts SAF format |
+| `consensus_peaks.counts.txt` | Counts per sample over the consensus regions |
+| `consensus_peaks.counts.txt.summary` | featureCounts assignment summary (rendered by MultiQC) |
+| `consensus_peaks_annotated.tsv` | Nearest gene and distance to its TSS, per peak (needs `--gtf`) |
+
+Counting is fragment-level (`-p --countReadPairs`) when every library is paired-end, and
+read-level otherwise, so a mixed single/paired run does not silently produce incomparable columns.
+
+## differential
+
+| File | Description |
+|---|---|
+| `deseq2.normalised_counts.tsv` | Size-factor normalised counts |
+| `deseq2.pca.pdf`, `.pca.tsv` | PCA over the 500 most variable peaks |
+| `deseq2.sample_correlation.pdf`, `.tsv` | Spearman correlation between samples |
+| `deseq2.<condition>_vs_<reference>.results.tsv` | Differential accessibility results |
+| `deseq2.sessionInfo.txt` | R session information |
+
+The results tables only appear when the samplesheet describes at least two conditions with at
+least two replicates each. Otherwise the log records why the comparison was skipped. The
+reference level is the first condition alphabetically.
+
+## tss_enrichment
+
+`tss_profile.pdf` and `tss_heatmap.pdf` show mean coverage around annotated TSSs across all
+samples; `tss_matrix.gz` is the underlying deeptools matrix, reusable with `plotProfile` or
+`plotHeatmap` for custom figures. A sharp peak at position 0 indicates good signal-to-noise.
 
 ## pipeline_info
 
