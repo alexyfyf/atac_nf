@@ -5,10 +5,15 @@ process ATAC_SHIFT_BAM {
     tag "$meta.id"
     label 'process_high'
 
+    // This process needs perl *and* samtools in the same image: the script shells out to
+    // `samtools view` both to read the BAM and to write the result. The conda-built
+    // biocontainers carry only their own package, so the earlier mulled bedtools+samtools
+    // image had no perl. This is the Debian-packaged samtools image instead, where perl-base
+    // is an Essential package and so always present.
     conda "bioconda::samtools=1.15.1 conda-forge::perl=5.32.1"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
-        'https://depot.galaxyproject.org/singularity/mulled-v2-8186960447c5cb2faa697666dc1e6d919ad23f3e:3127fcae6b6bdaf8181e21a26ae61231030a9fcb-0' :
-        'quay.io/biocontainers/mulled-v2-8186960447c5cb2faa697666dc1e6d919ad23f3e:3127fcae6b6bdaf8181e21a26ae61231030a9fcb-0' }"
+        'docker://biocontainers/samtools:v1.9-4-deb_cv1' :
+        'biocontainers/samtools:v1.9-4-deb_cv1' }"
 
     input:
     tuple val(meta), path(bam), path(bai)
