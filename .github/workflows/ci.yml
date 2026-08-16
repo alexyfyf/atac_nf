@@ -58,12 +58,29 @@ jobs:
         run: nextflow run . -profile test --outdir ./results -stub-run
       - name: Confirm -resume caches everything
         run: |
-          nextflow run . -profile test --outdir ./results -stub-run -resume 2>&1 | tee resume.log
-          if grep -qE '\| [0-9]+ of [0-9]+$' resume.log; then
-            echo "Some tasks were not cached on resume:"
-            grep -E '\| [0-9]+ of [0-9]+$' resume.log
+          nextflow run . -profile test --outdir ./results -stub-run -resume
+          # Assert against the trace file rather than the console: with NXF_ANSI_LOG=false the
+          # progress lines are not a stable thing to grep, and a regex that silently stops
+          # matching turns this into a check that can never fail.
+          trace=$(ls -t results/pipeline_info/execution_trace_*.txt | head -n1)
+          echo "Checking $(basename "$trace")"
+          uncached=$(awk -F'\t' '
+            NR==1 {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "status") status_col = i
+                    if ($i == "name")   name_col   = i
+                }
+                if (!status_col) { print "ERROR: no status column in trace file" > "/dev/stderr"; exit 2 }
+                next
+            }
+            $status_col != "CACHED" { printf "  %s  %s\n", $status_col, $name_col }
+          ' "$trace") || exit 1
+          if [ -n "$uncached" ]; then
+            echo "Tasks not cached on resume:"
+            echo "$uncached"
             exit 1
           fi
+          echo "All tasks cached on resume."
 
   nf-test:
     name: nf-test
