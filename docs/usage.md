@@ -116,10 +116,11 @@ Every process declares a resource label (`process_low` … `process_high_memory`
 scale with `task.attempt`, so a retry after an out-of-memory kill asks for more than the attempt
 that just failed.
 
-Requests are clamped by `resourceLimits`, which defaults to the detected core count and 90% of
-detected RAM. That means a local run on a laptop will not fail at submit time with "process
-requirement exceeds available CPUs". Override with `--max_cpus`, `--max_memory` and `--max_time`,
-or set `process.resourceLimits` in a site config.
+Requests are clamped by `resourceLimits`. `--max_cpus` defaults to the number of cores the
+machine actually reports, so a local run does not fail at submit time with "process requirement
+exceeds available CPUs". `--max_memory` (default `128.GB`) and `--max_time` (default `240.h`) are
+plain ceilings — set them to suit your machine, e.g. `--max_memory 16.GB` on a laptop, or set
+`process.resourceLimits` in a site config. `-profile slurm` and `-profile test` set their own.
 
 The original `large` and `big` labels are kept as aliases, so existing site configs that select
 on them still apply.

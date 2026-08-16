@@ -239,7 +239,8 @@
                 "max_memory": {
                     "type": "string",
                     "pattern": "^\\d+(\\.\\d+)?\\s*\\.?\\s*(K|M|G|T)?B$",
-                    "description": "Maximum memory any single task may request. Defaults to 90% of detected RAM.",
+                    "default": "128.GB",
+                    "description": "Maximum memory any single task may request.",
                     "fa_icon": "fas fa-memory"
                 },
                 "max_time": {

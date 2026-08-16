@@ -62,8 +62,8 @@ jobs:
           # Assert against the trace file rather than the console: with NXF_ANSI_LOG=false the
           # progress lines are not a stable thing to grep, and a regex that silently stops
           # matching turns this into a check that can never fail.
-          trace=$(ls -t results/pipeline_info/execution_trace_*.txt | head -n1)
-          echo "Checking $(basename "$trace")"
+          trace=results/pipeline_info/execution_trace.txt
+          test -s "$trace" || { echo "no trace file at $trace"; exit 1; }
           uncached=$(awk -F'\t' '
             NR==1 {
                 for (i = 1; i <= NF; i++) {
