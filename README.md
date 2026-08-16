@@ -109,7 +109,8 @@ single-end data).
 
 The full list, with types and help text, is in [`nextflow_schema.json`](nextflow_schema.json).
 See [docs/usage.md](docs/usage.md) for details and [docs/output.md](docs/output.md) for a
-description of the outputs.
+description of the outputs. [docs/validation.md](docs/validation.md) is a step-by-step plan for
+checking a run against a real dataset, with the QC thresholds to expect at each stage.
 
 ## Genome presets
 
