@@ -29,9 +29,13 @@ process TRIMMOMATIC {
     def call = meta.single_end ? "SE -threads $task.cpus ${reads} ${prefix}_1P.fastq.gz"
                                : "PE -threads $task.cpus ${reads} -baseout ${prefix}.fastq.gz"
     """
+    # Trimmomatic writes its report to stderr, which MultiQC parses from the log file. Echo the
+    # log on failure too, otherwise the redirect swallows the reason and the task just reports
+    # a bare exit code.
     trimmomatic $call \\
         $clip $args \\
-        2> ${prefix}_trim.log
+        2> ${prefix}_trim.log \\
+        || { cat ${prefix}_trim.log >&2; exit 1; }
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
