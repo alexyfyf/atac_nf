@@ -21,6 +21,8 @@ process BWAMEM2_MEM {
     script:
     def args   = task.ext.args   ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}_sorted"
+    // See BWA_MEM: picard MarkDuplicates throws an NPE on reads with no read group.
+    def read_group = "'@RG\\tID:${meta.id}\\tSM:${meta.id}\\tLB:${meta.id}\\tPL:ILLUMINA'"
     """
     INDEX=\$(find -L ./$index -name "*.amb" | head -n1 | sed 's/\\.amb\$//')
     if [ -z "\$INDEX" ]; then
@@ -28,7 +30,7 @@ process BWAMEM2_MEM {
         exit 1
     fi
 
-    bwa-mem2 mem -t $task.cpus $args \$INDEX $reads \\
+    bwa-mem2 mem -t $task.cpus -R $read_group $args \$INDEX $reads \\
         | samtools sort -@ $task.cpus -o ${prefix}.bam -
     samtools index -@ $task.cpus ${prefix}.bam
 

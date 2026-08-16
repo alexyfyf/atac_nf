@@ -21,6 +21,9 @@ process BWA_MEM {
     script:
     def args   = task.ext.args   ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}_sorted"
+    // picard MarkDuplicates needs a read group to resolve each read's library, and throws an
+    // NPE without one. bwa emits no @RG unless asked, so always supply one.
+    def read_group = "'@RG\\tID:${meta.id}\\tSM:${meta.id}\\tLB:${meta.id}\\tPL:ILLUMINA'"
     """
     # Derive the index prefix from the index files themselves rather than from the
     # --fasta string, so a user-supplied --bwa_index with any naming scheme works.
@@ -30,7 +33,7 @@ process BWA_MEM {
         exit 1
     fi
 
-    bwa mem -t $task.cpus $args \$INDEX $reads \\
+    bwa mem -t $task.cpus -R $read_group $args \$INDEX $reads \\
         | samtools sort -@ $task.cpus -o ${prefix}.bam -
     samtools index -@ $task.cpus ${prefix}.bam
 
