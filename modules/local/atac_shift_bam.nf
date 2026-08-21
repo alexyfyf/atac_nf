@@ -29,6 +29,13 @@ process ATAC_SHIFT_BAM {
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
+    # TEMPORARY DIAGNOSTIC. This task fails in the container job with exit 1, no output of any
+    # kind, and not one file created -- not even the .sam the perl script writes first. That is
+    # consistent with the script body never running at all. The marker distinguishes "body never
+    # ran" from "a command failed silently"; set -x names the failing line if it is the latter.
+    echo "SHIFT: body reached; perl=\$(command -v perl || echo NONE); samtools=\$(command -v samtools || echo NONE)" >&2
+    set -x
+
     command -v perl >/dev/null 2>&1 || {
         echo "ERROR: perl is required by ${shift_script} but is not present in this container/environment." >&2
         exit 1
