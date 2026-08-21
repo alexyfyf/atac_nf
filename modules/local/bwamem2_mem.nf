@@ -26,7 +26,15 @@ process BWAMEM2_MEM {
     """
     INDEX=\$(find -L ./$index -name "*.amb" | head -n1 | sed 's/\\.amb\$//')
     if [ -z "\$INDEX" ]; then
-        echo "ERROR: no bwa-mem2 index (*.amb) found in '$index'" >&2
+        echo "ERROR: no aligner index (*.amb) found in '$index'." >&2
+        echo "--aligner_index should point at a directory containing exactly one bwa-mem2 index." >&2
+        exit 1
+    fi
+    # See BWA_MEM: .amb is common to both aligners, so check for a bwa-mem2-only file.
+    if [ ! -e "\${INDEX}.bwt.2bit.64" ]; then
+        echo "ERROR: '\${INDEX}' has no .bwt.2bit.64, so it is not a bwa-mem2 index -- it looks" >&2
+        echo "like a plain bwa index. Either pass --aligner bwa, or point --aligner_index at a" >&2
+        echo "bwa-mem2 index. The two index formats are not interchangeable." >&2
         exit 1
     fi
 

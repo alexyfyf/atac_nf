@@ -26,10 +26,19 @@ process BWA_MEM {
     def read_group = "'@RG\\tID:${meta.id}\\tSM:${meta.id}\\tLB:${meta.id}\\tPL:ILLUMINA'"
     """
     # Derive the index prefix from the index files themselves rather than from the
-    # --fasta string, so a user-supplied --bwa_index with any naming scheme works.
+    # --fasta string, so a user-supplied --aligner_index with any naming scheme works.
     INDEX=\$(find -L ./$index -name "*.amb" | head -n1 | sed 's/\\.amb\$//')
     if [ -z "\$INDEX" ]; then
-        echo "ERROR: no BWA index (*.amb) found in '$index'" >&2
+        echo "ERROR: no aligner index (*.amb) found in '$index'." >&2
+        echo "--aligner_index should point at a directory containing exactly one bwa index." >&2
+        exit 1
+    fi
+    # .amb is produced by both bwa and bwa-mem2, so it cannot tell the two apart. .bwt and .sa
+    # are bwa-only; bwa-mem2 writes .bwt.2bit.64 and .0123 instead.
+    if [ ! -e "\${INDEX}.bwt" ] || [ ! -e "\${INDEX}.sa" ]; then
+        echo "ERROR: '\${INDEX}' has no .bwt/.sa, so it is not a bwa index -- it looks like a" >&2
+        echo "bwa-mem2 index. Either pass --aligner bwa-mem2, or point --aligner_index at a" >&2
+        echo "bwa index. The two index formats are not interchangeable." >&2
         exit 1
     fi
 

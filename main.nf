@@ -70,9 +70,19 @@ workflow ATACSEQ {
     def adapter_path          = resolveAdapter()
 
     // A bare `--fasta` with no value is parsed by Nextflow as the boolean true, so check the
-    // type as well as emptiness; otherwise it fails much later inside file().
-    if (!params.fasta?.toString()?.trim() || params.fasta instanceof Boolean) {
-        error("--fasta is required: give the path to the reference genome FASTA.")
+    // type as well as emptiness; otherwise it fails much later inside file(). The literal
+    // strings are handled too, because `--fasta null` is what people reach for when trying to
+    // unset a value a profile has already set, and it would otherwise look for a file called
+    // "null".
+    def has_fasta = params.fasta && !(params.fasta instanceof Boolean) &&
+                    !(params.fasta.toString().trim().toLowerCase() in ['', 'null', 'none', 'false'])
+
+    // The FASTA is only strictly needed to build an index. With --aligner_index the run can
+    // proceed without it; the only cost is the MISMATCH-related fields of picard's alignment
+    // summary metrics, which picard cannot compute without a reference.
+    if (!has_fasta && !params.aligner_index) {
+        error("No reference given. Pass --fasta <genome.fa>, or --aligner_index <dir> holding a " +
+              "pre-built ${params.aligner} index.")
     }
     if (!blacklist_path?.toString()?.trim()) {
         error("No blacklist available for genome '${genome}'. Pass --blacklist <bed>.")
@@ -91,7 +101,8 @@ workflow ATACSEQ {
     A T A C - N F   ${workflow.manifest.version}
     ================================
     input           : ${params.input ?: params.reads}
-    fasta           : ${params.fasta}
+    fasta           : ${has_fasta ? params.fasta : '(none: using --aligner_index)'}
+    aligner_index   : ${params.aligner_index ?: '(none: building the index)'}
     outdir          : ${params.outdir}
     aligner         : ${params.aligner}
     genome          : ${genome}
@@ -106,10 +117,17 @@ workflow ATACSEQ {
     GenomeSize      : ${effective_genome_size}
     """.stripIndent()
 
+    if (!has_fasta) {
+        log.warn("Running without --fasta: picard will omit the MISMATCH-related alignment " +
+                 "metrics (PF_MISMATCH_RATE, PF_HQ_ERROR_RATE, PF_INDEL_RATE).")
+    }
+
     ch_versions      = Channel.empty()
     ch_multiqc_files = Channel.empty()
 
-    ch_fasta     = Channel.value(file(params.fasta, checkIfExists: true))
+    // An empty list is Nextflow's idiom for "no file" on an optional path input.
+    ch_fasta     = has_fasta ? Channel.value(file(params.fasta, checkIfExists: true))
+                             : Channel.value([])
     ch_blacklist = Channel.value(file(blacklist_path, checkIfExists: true))
     ch_adapter   = Channel.value(file(adapter_path, checkIfExists: true))
     ch_shift     = Channel.value(file(params.shift, checkIfExists: true))

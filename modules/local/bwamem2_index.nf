@@ -1,5 +1,9 @@
 process BWAMEM2_INDEX {
     tag "$fasta.baseName"
+    // Both labels are needed: Nextflow labels do not compose, and process_high_memory sets
+    // only `memory`. Without process_high this process would inherit cpus = 1 from the
+    // defaults and index single-threaded.
+    label 'process_high'
     label 'process_high_memory'
 
     conda "bioconda::bwa-mem2=2.3 bioconda::htslib=1.22.1 bioconda::samtools=1.22.1"

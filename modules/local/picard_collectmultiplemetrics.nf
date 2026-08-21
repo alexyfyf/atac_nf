@@ -9,7 +9,7 @@ process PICARD_COLLECTMULTIPLEMETRICS {
 
     input:
     tuple val(meta), path(bam), path(bai)
-    path fasta
+    path fasta  // optional: pass [] to run without a reference
 
     output:
     tuple val(meta), path("*_metrics")   , emit: metrics
@@ -27,13 +27,16 @@ process PICARD_COLLECTMULTIPLEMETRICS {
     def programs  = meta.single_end
         ? '--PROGRAM CollectAlignmentSummaryMetrics'
         : '--PROGRAM CollectAlignmentSummaryMetrics --PROGRAM CollectInsertSizeMetrics'
+    // Optional for both programs we run: without it picard drops only the MISMATCH-related
+    // fields, and insert sizes come from TLEN regardless.
+    def reference = fasta ? "--REFERENCE_SEQUENCE ${fasta}" : ''
     """
     picard -Xmx${avail_mem}M CollectMultipleMetrics \\
         $args \\
         --VALIDATION_STRINGENCY LENIENT \\
         --PROGRAM null \\
         $programs \\
-        --REFERENCE_SEQUENCE $fasta \\
+        $reference \\
         --INPUT $bam \\
         --OUTPUT ${prefix}
 

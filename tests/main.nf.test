@@ -18,7 +18,7 @@ nextflow_pipeline {
 
             // Per-sample processes for two samples, plus the single-instance reference and
             // cross-sample tasks.
-            assert workflow.trace.tasks().size() == 43
+            assert workflow.trace.tasks().size() == 42
 
             // Reporting
             assert path("$outputDir/MultiQC/multiqc_report.html").exists()
@@ -154,8 +154,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 43.
-            assert workflow.trace.tasks().size() == 39
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 42.
+            assert workflow.trace.tasks().size() == 38
             assert !path("$outputDir/trim").exists()
             assert !path("$outputDir/post_fastqc").exists()
             // ...and the untrimmed reads still make it all the way through.
@@ -230,6 +230,73 @@ nextflow_pipeline {
         then {
             assert workflow.failed
             assert workflow.stdout.any { it.contains("--aligner must be") }
+        }
+    }
+
+    test("--aligner bwa-mem2 uses the bwa-mem2 modules") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir  = "$outputDir"
+                aligner = "bwa-mem2"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // software_versions.yml records fully-qualified process names, which is the cleanest
+            // way to assert which branch of the aligner choice actually ran.
+            def versions = path("$outputDir/pipeline_info/software_versions.yml").text
+            assert versions.contains("BWAMEM2_INDEX")
+            assert versions.contains("BWAMEM2_MEM")
+            assert !versions.contains("BWA_INDEX")
+            assert !versions.contains("BWA_MEM")
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("a pre-built index runs without --fasta and skips indexing") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir        = "$outputDir"
+                fasta         = null
+                aligner_index = "$projectDir/tests/data/bwa_index"
+            }
+        }
+
+        then {
+            assert workflow.success
+            def versions = path("$outputDir/pipeline_info/software_versions.yml").text
+            assert versions.contains("BWA_MEM")
+            // Indexing was skipped entirely
+            assert !versions.contains("BWA_INDEX")
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+            // picard still runs, just without the reference
+            assert path("$outputDir/FilteredBamFiles/sample1.alignment_summary_metrics").exists()
+        }
+    }
+
+    test("no reference at all is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir        = "$outputDir"
+                fasta         = null
+                aligner_index = null
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.join('\n').contains("No reference given") ||
+                   (workflow.errorReport ?: '').contains("No reference given")
         }
     }
 }

@@ -1,10 +1,9 @@
 //
-// Reference preparation: aligner index (built or supplied) and chrom.sizes.
+// Reference preparation: the aligner index, either built here or supplied pre-built.
 //
 
 include { BWA_INDEX          } from '../../modules/local/bwa_index'
 include { BWAMEM2_INDEX      } from '../../modules/local/bwamem2_index'
-include { GENOME_CHROM_SIZES } from '../../modules/local/genome_chrom_sizes'
 
 workflow PREPARE_GENOME {
     take:
@@ -29,11 +28,7 @@ workflow PREPARE_GENOME {
         ch_versions = ch_versions.mix(BWA_INDEX.out.versions)
     }
 
-    GENOME_CHROM_SIZES(ch_fasta)
-    ch_versions = ch_versions.mix(GENOME_CHROM_SIZES.out.versions)
-
     emit:
-    index       = ch_index                          // channel: path(index_dir)  (value channel)
-    chrom_sizes = GENOME_CHROM_SIZES.out.sizes.collect()
-    versions    = ch_versions
+    index    = ch_index // channel: path(index_dir)  (value channel)
+    versions = ch_versions
 }
