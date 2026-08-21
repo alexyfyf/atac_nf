@@ -99,9 +99,19 @@ jobs:
         with:
           version: "24.04.0"
       - name: Install nf-test
+        # Pinned, and fetched straight from the release asset rather than through
+        # get.nf-test.com: that installer resolves "latest" via the GitHub API, and
+        # unauthenticated API calls from shared runners get rate-limited, which fails the job
+        # with a bare `curl: (22) ... error: 403` before a single test runs.
+        env:
+          NFT_VER: "0.9.2"
         run: |
-          wget -qO- https://get.nf-test.com | bash
-          sudo mv nf-test /usr/local/bin/
+          curl -sSfL -o nf-test.tar.gz \
+              "https://github.com/askimed/nf-test/releases/download/v${NFT_VER}/nf-test-${NFT_VER}.tar.gz"
+          tar -xzf nf-test.tar.gz
+          # The launcher looks for nf-test.jar beside itself, so both have to move together.
+          sudo mv nf-test nf-test.jar /usr/local/bin/
+          nf-test version
       - name: Run the test suite
         run: nf-test test --verbose
 
