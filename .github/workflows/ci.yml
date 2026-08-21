@@ -37,6 +37,10 @@ jobs:
         run: |
           python -c "import json; json.load(open('nextflow_schema.json'))"
           python -c "import json; json.load(open('assets/schema_input.json'))"
+      - name: Check genome presets pair matching contig naming
+        # A chr-prefixed blacklist against an Ensembl reference overlaps nothing and bedtools
+        # calls that success, so this mismatch is silent. Assert the invariant at the source.
+        run: python3 tests/check_genome_naming.py
 
   stub:
     name: Stub run (Nextflow ${{ matrix.NXF_VER }})

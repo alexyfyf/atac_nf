@@ -45,30 +45,82 @@ This path has no per-sample metadata, so `--single_end` applies to the whole run
 
 ## Reference
 
-`--fasta` is always required. Everything else can come from a genome preset:
+Three ways to supply one, in order of convenience.
+
+### From AWS iGenomes
 
 ```bash
---fasta /ref/mm10.fa --genome mm10
+--genome mm10 --read_length 100
 ```
 
-`--genome` supplies the blacklist BED, the MACS effective genome size and the deeptools
-effective genome size. Presets for `mm10` and `hg38` live in `conf/genomes.config`. An unknown
-genome is an error, not a silent fallback.
+That resolves the FASTA, the bwa index, the GTF, the blacklist, the mitochondrial contig name and
+the MACS genome size from `s3://ngi-igenomes`. Nothing local is needed. Available presets:
 
-For an unlisted genome, supply the three values directly:
+| Genome | Source | Contig naming | Mitochondrion |
+|---|---|---|---|
+| `mm10` | UCSC | `chr1` | `chrM` |
+| `GRCm38` | Ensembl | `1` | `MT` |
+| `hg38` | UCSC | `chr1` | `chrM` |
+| `GRCh38` | NCBI | `chr1` | `chrM` |
+| `GRCh37` | Ensembl | `1` | `MT` |
+
+`--read_length` is required because iGenomes stores the MACS genome size per read length
+(50/75/100/150/200 bp); the nearest entry is used and a warning is logged if it is not exact. The
+same table supplies the deeptools effective genome size, since both estimate the mappable genome
+at a given read length — deeptools' own published numbers differ slightly, so override with
+`--effective_genome_size` if you need theirs exactly.
+
+An unknown `--genome` is an error, not a silent fallback.
+
+Two caveats. First, an S3 reference is fetched on every fresh run, which for a human genome is
+tens of gigabytes — for repeated work, download once and point `--fasta`/`--aligner_index` at
+local copies. Second, iGenomes ships no bwa-mem2 index, so `--aligner bwa-mem2` ignores the
+preset's index and builds its own from the resolved FASTA.
+
+`--igenomes_ignore` disables the presets entirely, for offline or air-gapped runs.
+
+### Your own reference
+
+```bash
+--fasta /ref/mm10.fa --genome mm10 --read_length 100
+```
+
+`--fasta` overrides just the FASTA; the rest still comes from the preset. Any individual value can
+be overridden the same way: `--aligner_index`, `--gtf`, `--blacklist`, `--macs_gsize`,
+`--effective_genome_size`, `--mito_name`.
+
+For a genome with no preset, supply the values yourself:
 
 ```bash
 --fasta /ref/danRer11.fa \
 --blacklist /ref/danRer11-blacklist.bed \
 --macs_gsize 1.37e9 \
---effective_genome_size 1345118429
+--effective_genome_size 1345118429 \
+--mito_name chrM
 ```
+
+### Contig naming — read this if you supply your own blacklist
+
+**A blacklist must use the same contig naming as the reference.** UCSC and NCBI builds are
+`chr`-prefixed (`chr1`, `chrM`); Ensembl builds are not (`1`, `MT`). Get this wrong and every
+`bedtools` operation finds zero overlap and reports success — the FRiP blacklist fraction reads 0,
+the consensus peak set is not filtered, and `bamCoverage` excludes nothing. Nothing errors.
+
+The genome presets can never be mismatched: each is paired with a correctly named blacklist, and
+`tests/check_genome_naming.py` asserts that in CI. For a hand-supplied `--blacklist`, the pipeline
+compares its contigs against the BAM header at runtime and fails with both namings printed if
+they share none.
+
+`--mito_name` matters for the same reason: it is excluded from the library-complexity
+(PBC/NRF) calculation and reported separately in the FRiP table. Set to the wrong spelling,
+mitochondrial reads are silently counted into the complexity metrics and inflate them.
 
 ### Annotation
 
 `--gtf /ref/gencode.vM25.annotation.gtf` (plain or gzipped) unlocks two extra steps: the TSS
 enrichment profile and nearest-gene annotation of the consensus peaks. TSS positions are taken
-from `gene` features, using `gene_name` when present and falling back to `gene_id`.
+from `gene` features, using `gene_name` when present and falling back to `gene_id`. A `--genome`
+preset supplies this automatically.
 
 ### Reusing an index
 
@@ -78,7 +130,12 @@ Indexing is the slowest setup step. Point at an existing index directory to skip
 --aligner bwa --aligner_index /ref/bwa_index/
 ```
 
-The index prefix is discovered from the `.amb` file, so any naming scheme works.
+The index prefix is discovered from the `.amb` file, so any naming scheme works. With an index
+supplied, `--fasta` becomes optional — the only cost is picard's MISMATCH-related alignment
+metrics, which need a reference.
+
+The index must match `--aligner`: bwa and bwa-mem2 formats are not interchangeable, and passing
+one to the other is detected and reported rather than failing obscurely inside the aligner.
 
 `--aligner bwa-mem2` roughly halves alignment time but its index build needs about 28× the
 genome size in RAM (~80 GB for human). Build it once and reuse it via `--aligner_index`.

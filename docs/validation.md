@@ -10,7 +10,7 @@ CI runs the pipeline on a synthetic dataset. As of writing, these steps have bee
 the real tools in containers and pass:
 
 FastQC · Trimmomatic · bwa index · bwa mem · samtools filter/flagstat/idxstats ·
-picard CollectMultipleMetrics · picard MarkDuplicates · chrom.sizes · GTF→TSS
+picard CollectMultipleMetrics · picard MarkDuplicates · GTF→TSS
 
 These have **not** yet been through a full real run, so you may be the first to exercise them:
 
@@ -62,18 +62,29 @@ Include `condition` and `replicate` for **two conditions with at least two repli
 you want differential accessibility. With fewer, DESeq2 still produces normalised counts, PCA and
 a correlation heatmap, and logs why it skipped the comparison.
 
-**Reference.** Check your contig naming now, because it bites later:
+**Reference.** Easiest is a genome preset, which fetches everything from AWS iGenomes and
+guarantees the blacklist and mitochondrial name match the reference's contig naming:
+
+```bash
+--genome mm10 --read_length 100        # or GRCm38 / hg38 / GRCh38 / GRCh37
+```
+
+If you bring your own reference, check its contig naming first, because a mismatch is silent:
 
 ```bash
 grep '^>' /ref/mm10.fa | head
 ```
 
-The `chrom.sizes` step rewrites Ensembl-style names (`1`, `X`, `MT`) to UCSC style and then keeps
-only `chr*`. UCSC-style references pass through untouched. Anything else (RefSeq `NC_000067.6`,
-for instance) will fail with an explicit error — supply a UCSC- or Ensembl-named reference.
+UCSC and NCBI builds are `chr`-prefixed (`chr1`, `chrM`); Ensembl builds are not (`1`, `MT`).
+**A blacklist in the other naming overlaps nothing, and bedtools reports that as success** — the
+FRiP blacklist fraction reads 0, the consensus peak set is never filtered, and `bamCoverage`
+excludes nothing. The pipeline now compares the blacklist's contigs against the BAM header and
+fails if they share none, but pass a matching pair to begin with.
 
-The same naming matters for the mitochondrial fraction in the FRiP metric, which counts reads on
-contigs named exactly `chrM` or `MT`. A differently named mitochondrial contig silently reports 0.
+`--mito_name` needs the same care: it is excluded from the library-complexity (PBC/NRF)
+calculation and reported separately in FRiP. The wrong spelling silently counts mitochondrial
+reads into the complexity metrics and inflates them. A `--genome` preset sets it for you;
+otherwise pass `--mito_name chrM` or `--mito_name MT`.
 
 **Keep it small.** For a first real run, subsample to one chromosome:
 
@@ -187,7 +198,8 @@ column -t results_real/FRiP/*.metric
 FRiP above ~0.3 is the usual ENCODE target, though it is strongly tissue- and protocol-dependent.
 `MTFraction` is worth a look on real data: standard ATAC often runs 20–60% mitochondrial, while
 Omni-ATAC is much lower. **A `ReadsInMT` of exactly 0 usually means your mitochondrial contig
-isn't named `chrM` or `MT`, not that the library is clean.**
+does not match `--mito_name`, not that the library is clean.** A preset sets this correctly; check
+it in the run banner if the number looks wrong.
 
 ### 5f. TSS enrichment (needs `--gtf`)
 
@@ -287,7 +299,7 @@ Common cases:
 |---|---|
 | `process requirement exceeds available CPUs` | Set `--max_cpus` / `--max_memory` |
 | `no BWA index (*.amb) found` | `--aligner_index` points at the wrong directory, or an index for the other aligner |
-| `no UCSC-style (chr*) contigs found` | Reference contig naming — see Step 2 |
+| `share no contig names` | Blacklist naming does not match the reference — see Step 2 |
 | `perl is required ... not present` | Container lacks perl; try `-profile conda` |
 | Consensus peak set is empty | No peaks called upstream — check the shifted BAMs and MACS output first |
 | Image pull failures | Try `-profile singularity` or `-profile conda` |

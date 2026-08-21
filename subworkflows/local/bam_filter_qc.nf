@@ -17,8 +17,9 @@ include { LIBRARY_COMPLEXITY                 } from '../../modules/local/library
 
 workflow BAM_FILTER_QC {
     take:
-    ch_bam   // channel: [ val(meta), path(bam), path(bai) ]  raw alignments
-    ch_fasta // channel: path(fasta)  (value channel)
+    ch_bam    // channel: [ val(meta), path(bam), path(bai) ]  raw alignments
+    ch_fasta  // channel: path(fasta)  (value channel, may be empty)
+    mito_name // val    : mitochondrial contig name, excluded from the complexity metrics
 
     main:
     ch_versions = Channel.empty()
@@ -36,7 +37,7 @@ workflow BAM_FILTER_QC {
     SAMTOOLS_STATS(ch_bam)
     ch_versions = ch_versions.mix(SAMTOOLS_STATS.out.versions.first())
 
-    LIBRARY_COMPLEXITY(PICARD_MARKDUPLICATES.out.bam)
+    LIBRARY_COMPLEXITY(PICARD_MARKDUPLICATES.out.bam, mito_name)
     ch_versions = ch_versions.mix(LIBRARY_COMPLEXITY.out.versions.first())
 
     // Second filtering pass drops the reads picard just flagged as duplicates.

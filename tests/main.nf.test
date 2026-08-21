@@ -299,4 +299,27 @@ nextflow_pipeline {
                    (workflow.errorReport ?: '').contains("No reference given")
         }
     }
+
+    test("a genome preset without --read_length is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                igenomes_ignore = false
+                genome          = "mm10"
+                read_length     = null
+                macs_gsize      = null
+                blacklist       = null
+                aligner_index   = "$projectDir/tests/data/bwa_index"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("per-read-length table")
+        }
+    }
 }

@@ -12,6 +12,7 @@ process LIBRARY_COMPLEXITY {
 
     input:
     tuple val(meta), path(bam), path(bai)
+    val  mito_name
 
     output:
     tuple val(meta), path("*_pbc.txt")     , emit: pbc
@@ -22,6 +23,9 @@ process LIBRARY_COMPLEXITY {
     task.ext.when == null || task.ext.when
 
     script:
+    // An exact field comparison rather than the old `grep -v 'chrM'`: that was a substring match
+    // over the whole line, and it missed Ensembl references entirely, where the mitochondrial
+    // contig is called MT. Mitochondrial reads were therefore counted into PBC/NRF.
     def prefix = task.ext.prefix ?: "${meta.id}"
     def bedpe  = meta.single_end ? ''                     : '-bedpe'
     def col    = meta.single_end ? '\$1,\$2,\$3,\$6'      : '\$1,\$2,\$4,\$6,\$9,\$10'
@@ -29,7 +33,7 @@ process LIBRARY_COMPLEXITY {
     samtools sort -@ $task.cpus -n $bam \\
         | bedtools bamtobed $bedpe -i stdin \\
         | awk 'BEGIN{OFS="\\t"}{print $col}' \\
-        | grep -v 'chrM' \\
+        | awk -v mt='${mito_name}' '\$1 != mt' \\
         | sort \\
         | uniq -c \\
         | awk 'BEGIN{mt=0;m0=0;m1=0;m2=0}
@@ -46,7 +50,7 @@ process LIBRARY_COMPLEXITY {
     printf '%b\\n' \\
         "# id: 'atac_library_complexity'" \\
         "# section_name: 'Library complexity (ENCODE PBC)'" \\
-        "# description: 'Computed from the duplicate-marked BAM with chrM excluded. NRF = distinct/total, PBC1 = one-read-pair/distinct, PBC2 = one-read-pair/two-read-pairs.'" \\
+        "# description: 'Computed from the duplicate-marked BAM with the mitochondrial contig excluded. NRF = distinct/total, PBC1 = one-read-pair/distinct, PBC2 = one-read-pair/two-read-pairs.'" \\
         "# format: 'tsv'" \\
         "# plot_type: 'table'" \\
         "# pconfig:" \\

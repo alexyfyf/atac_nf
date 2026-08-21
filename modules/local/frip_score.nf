@@ -12,6 +12,7 @@ process FRIP_SCORE {
     input:
     tuple val(meta), path(bam), path(bai), path(peak)
     path blacklist
+    val  mito_name
 
     output:
     tuple val(meta), path("*.metric")      , emit: metric
@@ -24,19 +25,32 @@ process FRIP_SCORE {
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
+    samtools idxstats $bam > ${prefix}.idxstats
+
+    # The blacklist has to use the same contig naming as the reference. A chr-prefixed blacklist
+    # against an Ensembl-named BAM overlaps nothing, and bedtools reports that as success -- so
+    # the blacklist fraction would silently read 0 and nothing would be filtered anywhere.
+    SHARED=\$(comm -12 <(cut -f1 $blacklist | grep -v '^#' | sort -u) \\
+                       <(cut -f1 ${prefix}.idxstats | sort -u) | wc -l)
+    if [ "\$SHARED" -eq 0 ]; then
+        echo "ERROR: '$blacklist' and this BAM share no contig names, so blacklist filtering" >&2
+        echo "would silently do nothing." >&2
+        echo "  blacklist: \$(cut -f1 $blacklist | sort -u | head -3 | tr '\\n' ' ')" >&2
+        echo "  BAM:       \$(cut -f1 ${prefix}.idxstats | sort -u | head -3 | tr '\\n' ' ')" >&2
+        echo "Use a blacklist matching the reference's naming (UCSC 'chr1' vs Ensembl '1')." >&2
+        exit 1
+    fi
+
     bedtools sort -i $peak | bedtools merge -i stdin \\
         | bedtools intersect -u -a $bam -b stdin -ubam | samtools view -c > ${prefix}.inpeak
     bedtools sort -i $blacklist | bedtools merge -i stdin \\
         | bedtools intersect -u -a $bam -b stdin -ubam | samtools view -c > ${prefix}.inblacklist
 
-    samtools idxstats $bam > ${prefix}.idxstats
     awk '{sum+=\$3} END {print sum+0}' ${prefix}.idxstats > ${prefix}.total
 
-    # Counting a contig that is absent from the header is an error, so ask only for the
-    # mitochondrial names that this BAM actually has.
-    MT_CONTIGS=\$(awk '\$1=="chrM" || \$1=="MT" {printf "%s ", \$1}' ${prefix}.idxstats)
-    if [ -n "\$MT_CONTIGS" ]; then
-        samtools view -c $bam \$MT_CONTIGS > ${prefix}.mtcount
+    # Asking for a contig absent from the header is an error, so check it is present first.
+    if awk -v mt='${mito_name}' '\$1==mt {found=1} END{exit !found}' ${prefix}.idxstats; then
+        samtools view -c $bam '${mito_name}' > ${prefix}.mtcount
     else
         echo 0 > ${prefix}.mtcount
     fi

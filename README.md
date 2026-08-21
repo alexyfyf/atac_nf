@@ -22,12 +22,19 @@ Requires Nextflow ≥24.04 and one of Docker, Singularity/Apptainer or Conda.
 # check the wiring without running any tool
 nextflow run alexyfyf/atac_nf -profile test,docker --outdir results -stub-run
 
-# a real run
+# a real run, taking the reference from AWS iGenomes
 nextflow run alexyfyf/atac_nf \
     -profile docker \
     --input samplesheet.csv \
-    --fasta /ref/mm10.fa \
     --genome mm10 \
+    --read_length 100 \
+    --outdir results
+
+# or with your own reference
+nextflow run alexyfyf/atac_nf \
+    -profile docker \
+    --input samplesheet.csv \
+    --fasta /ref/mm10.fa --genome mm10 --read_length 100 \
     --outdir results
 ```
 
@@ -91,8 +98,11 @@ single-end data).
 |---|---|---|
 | `--input` | — | Samplesheet CSV (preferred input) |
 | `--reads` | — | Legacy FASTQ glob |
-| `--fasta` | — | **Required.** Reference genome FASTA |
-| `--genome` | — | `mm10` or `hg38`; supplies blacklist, MACS gsize and effective genome size |
+| `--fasta` | — | Reference genome FASTA. Required unless `--genome` or `--aligner_index` supplies one |
+| `--genome` | — | AWS iGenomes preset: `mm10`, `GRCm38`, `hg38`, `GRCh38`, `GRCh37`. Supplies FASTA, bwa index, GTF, blacklist, mitochondrial name and MACS gsize |
+| `--read_length` | — | Required with `--genome`: selects the MACS/effective genome size (50/75/100/150/200) |
+| `--igenomes_base` | `s3://ngi-igenomes/igenomes` | Base path for iGenomes |
+| `--igenomes_ignore` | `false` | Ignore the presets entirely; never resolve a reference from S3 |
 | `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
 | `--aligner_index` | — | Pre-built index directory; skips indexing |
 | `--trim` | `true` | Run trimmomatic |
@@ -114,9 +124,32 @@ checking a run against a real dataset, with the QC thresholds to expect at each 
 
 ## Genome presets
 
-`mm10` and `hg38` are built in ([`conf/genomes.config`](conf/genomes.config)). To add a genome,
-extend that file rather than editing the workflow — or pass `--blacklist`, `--macs_gsize` and
-`--effective_genome_size` directly for a one-off run.
+`--genome` resolves the reference from [AWS iGenomes](https://ewels.github.io/AWS-iGenomes/):
+FASTA, bwa index, GTF, blacklist, mitochondrial contig name and MACS genome size, all from
+`s3://ngi-igenomes`. Presets live in [`conf/igenomes.config`](conf/igenomes.config):
+
+| Genome | Source | Contig naming |
+|---|---|---|
+| `mm10` | UCSC | `chr1`, `chrM` |
+| `GRCm38` | Ensembl | `1`, `MT` |
+| `hg38` | UCSC | `chr1`, `chrM` |
+| `GRCh38` | NCBI | `chr1`, `chrM` |
+| `GRCh37` | Ensembl | `1`, `MT` |
+
+Each preset is paired with a blacklist whose contig naming matches its own reference, and with
+the right mitochondrial spelling. That pairing matters: a `chr`-prefixed blacklist against an
+Ensembl reference overlaps nothing, and bedtools reports that as success — so blacklist filtering
+would silently do nothing. `tests/check_genome_naming.py` asserts the invariant in CI, and the
+pipeline also checks the blacklist against the BAM at runtime, which covers a hand-supplied
+`--blacklist` too.
+
+`--read_length` is required with `--genome`, because iGenomes stores the MACS genome size per
+read length. Any individual value can be overridden — `--fasta`, `--aligner_index`, `--gtf`,
+`--blacklist`, `--macs_gsize`, `--effective_genome_size`, `--mito_name` — and
+`--igenomes_ignore` disables the presets entirely for offline use.
+
+Note that iGenomes ships no bwa-mem2 index, so `--aligner bwa-mem2` always builds its own from
+the resolved FASTA.
 
 ## Downstream analysis
 
