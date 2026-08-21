@@ -119,8 +119,34 @@ jobs:
       - uses: nf-core/setup-nextflow@v2
         with:
           version: "24.04.0"
+      - name: Pre-pull the container images
+        # Docker writes its pull progress into the task's own .command.err, and Nextflow echoes
+        # only a bounded number of lines from that file when a task fails. Thirty-odd lines of
+        # "Pulling fs layer" is enough to push the real error out of view, which is what made
+        # the Tn5 shift failure look silent. Pulling up front keeps .command.err to tool output.
+        run: docker pull biocontainers/samtools:v1.9-4-deb_cv1
       - name: Run the pipeline for real
         run: nextflow run . -profile test,docker --outdir ./results
+      - name: Dump the failed tasks
+        if: failure()
+        # Nextflow prints the work directory of the first failure and truncates its logs. Dump
+        # every task that actually exited non-zero, in full, so a red run diagnoses itself
+        # instead of needing another round trip.
+        run: |
+          shopt -s nullglob
+          for exitcode in work/*/*/.exitcode; do
+              d=$(dirname "$exitcode")
+              status=$(cat "$exitcode")
+              [ "$status" = "0" ] && continue
+              echo "::group::$d (exit $status)"
+              for f in .command.sh .command.err .command.out .command.log; do
+                  echo "--- $f ---"
+                  cat "$d/$f" 2>/dev/null || echo "(absent)"
+              done
+              echo "--- staged files ---"
+              ls -la "$d"
+              echo "::endgroup::"
+          done
       - name: Check the expected outputs exist and are non-empty
         run: |
           set -euo pipefail
