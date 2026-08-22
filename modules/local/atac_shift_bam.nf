@@ -5,15 +5,20 @@ process ATAC_SHIFT_BAM {
     tag "$meta.id"
     label 'process_high'
 
-    // This process needs perl *and* samtools in the same image: the script shells out to
-    // `samtools view` both to read the BAM and to write the result. The conda-built
-    // biocontainers carry only their own package, so the earlier mulled bedtools+samtools
-    // image had no perl. This is the Debian-packaged samtools image instead, where perl-base
-    // is an Essential package and so always present.
-    conda "bioconda::samtools=1.15.1 conda-forge::perl=5.32.1"
+    // This process needs three things in one image, and the third is easy to miss:
+    //   * perl     -- the shift script itself
+    //   * samtools -- the script shells out to `samtools view` to read the BAM and write the result
+    //   * ps       -- because this pipeline enables report/timeline/trace, Nextflow wraps every
+    //                 task in a metrics collector that *exits 1 before running the script* when
+    //                 `ps` is absent, with no error beyond a one-line warning. A Debian-packaged
+    //                 samtools image was used here previously: it has perl and samtools, but
+    //                 Debian's procps is not Essential, so `ps` was missing and this step failed
+    //                 silently on every containerised run.
+    // The image below is the one SAMTOOLS_FILTER already uses, and it carries all three.
+    conda "bioconda::htslib=1.24 bioconda::samtools=1.24 conda-forge::perl conda-forge::procps-ng"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
-        'docker://biocontainers/samtools:v1.9-4-deb_cv1' :
-        'biocontainers/samtools:v1.9-4-deb_cv1' }"
+        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/e9/e994bf4eb3731150511a14f5706b7bdfd64df1b6d40898fff334286c027e0859/data' :
+        'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd' }"
 
     input:
     tuple val(meta), path(bam), path(bai)
@@ -29,13 +34,6 @@ process ATAC_SHIFT_BAM {
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    # TEMPORARY DIAGNOSTIC. This task fails in the container job with exit 1, no output of any
-    # kind, and not one file created -- not even the .sam the perl script writes first. That is
-    # consistent with the script body never running at all. The marker distinguishes "body never
-    # ran" from "a command failed silently"; set -x names the failing line if it is the latter.
-    echo "SHIFT: body reached; perl=\$(command -v perl || echo NONE); samtools=\$(command -v samtools || echo NONE)" >&2
-    set -x
-
     command -v perl >/dev/null 2>&1 || {
         echo "ERROR: perl is required by ${shift_script} but is not present in this container/environment." >&2
         exit 1
@@ -61,7 +59,7 @@ process ATAC_SHIFT_BAM {
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         perl: 5.32.1
-        samtools: 1.15.1
+        samtools: 1.24
     END_VERSIONS
     """
 }
