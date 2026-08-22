@@ -14,6 +14,35 @@ env:
   NXF_ANSI_LOG: false
 
 jobs:
+  image-probe:
+    name: Probe candidate images for perl/ps/samtools
+    runs-on: ubuntu-latest
+    # TEMPORARY. The Tn5 shift step fails because its image has no `ps`: with report/timeline/
+    # trace enabled, Nextflow wraps every task in a metrics collector that exits 1 before
+    # running the script when `ps` is absent. So its image needs perl AND samtools AND procps.
+    # Report rather than assert -- this job exists to tell us which candidate qualifies.
+    steps:
+      - name: Report what each candidate actually contains
+        run: |
+          for img in \
+            biocontainers/samtools:v1.9-4-deb_cv1 \
+            quay.io/biocontainers/samtools:1.21--h50ea8bc_0 \
+            community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd \
+            quay.io/biocontainers/perl:5.32.1 \
+            biocontainers/samtools:1.15.1_cv4
+          do
+            echo "::group::$img"
+            if docker pull -q "$img" >/dev/null 2>&1; then
+              docker run --rm --entrypoint sh "$img" -c '
+                for t in perl ps samtools; do
+                  printf "  %-9s %s\n" "$t" "$(command -v $t || echo MISSING)"
+                done' 2>&1 || echo "  (could not exec sh in this image)"
+            else
+              echo "  (pull failed)"
+            fi
+            echo "::endgroup::"
+          done
+
   config:
     name: Config parses
     runs-on: ubuntu-latest
