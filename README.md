@@ -167,6 +167,17 @@ Still not implemented: motif enrichment (HOMER/FIMO) and footprinting (HINT-ATAC
 [nf-core/atacseq](https://nf-co.re/atacseq) covers those well, and this pipeline's shifted BAMs
 and consensus peaks feed straight into them.
 
+## Software versions
+
+Every process declares both a `conda` spec and a `container` image, so nothing needs to be
+pre-installed beyond the container or conda runtime. Two places record the toolchain:
+
+- [`environment.yml`](environment.yml) — all 21 packages in one file, for reading the toolchain
+  or building a single environment to run a tool by hand. `-profile conda` does **not** use it;
+  Nextflow builds one minimal environment per process from that process's own directive.
+- `results/pipeline_info/software_versions.yml` — written on every run, from what actually
+  executed rather than what was declared. This is the file to quote in a methods section.
+
 ## Citation
 
 If you use this pipeline, please cite the Genome Biology review above and the Zenodo DOI.

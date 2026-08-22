@@ -157,6 +157,31 @@ Combine one execution profile with one packaging profile:
 nextflow run . -profile slurm,singularity --input samplesheet.csv --fasta /ref/mm10.fa --genome mm10
 ```
 
+### The aggregated environment file
+
+`-profile conda` builds one minimal environment **per process** from that process's own `conda`
+directive, so no environment file is needed or used. `environment.yml` at the repo root is a
+separate convenience: the same 21 packages collected into a single environment, for reading the
+toolchain without running anything, or for running a tool by hand.
+
+```bash
+conda env create -f environment.yml && conda activate atac_nf
+```
+
+It cannot reproduce the per-process versions exactly, because three packages are requested at
+different versions by different modules and one environment can only hold one of each:
+
+| Package | Requested across modules | In `environment.yml` |
+|---|---|---|
+| `samtools` | 1.15.1, 1.20, 1.22.1, 1.24 | 1.24 |
+| `htslib` | 1.22.1, 1.24 | 1.24 |
+| `bedtools` | 2.30.0, 2.31.1 | 2.31.1 |
+
+So a `-profile conda` run and a hand-run in this environment are not guaranteed to agree to the
+last digit. For the versions a given run actually used, read
+`results/pipeline_info/software_versions.yml`, which is built from what executed rather than
+what was declared.
+
 ### SLURM
 
 The cluster-specific settings are parameters rather than hardcoded values:

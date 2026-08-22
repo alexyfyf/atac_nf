@@ -1,0 +1,73 @@
+# Aggregated conda environment for the whole pipeline.
+#
+# READ THIS FIRST: `-profile conda` does NOT use this file. Nextflow builds a separate, minimal
+# environment per process from that process's own `conda` directive (see modules/local/*.nf).
+# This file exists for two other purposes:
+#
+#   1. reading the whole toolchain in one place, without running the pipeline;
+#   2. building one environment to run the tools by hand, outside Nextflow.
+#
+# Because it is a single environment, it cannot reproduce the per-process versions exactly.
+# Three packages are requested at different versions by different modules, and the newest of
+# each is used here:
+#
+#   samtools   1.15.1 / 1.20 / 1.22.1 / 1.24  ->  1.24
+#   htslib     1.22.1 / 1.24                  ->  1.24
+#   bedtools   2.30.0 / 2.31.1                ->  2.31.1
+#
+# So a run under `-profile conda` and a hand-run in this environment are not guaranteed to give
+# identical numbers. If you need that, reconcile the per-process specs first.
+#
+# The unpinned entries below are unpinned in the modules too; they are not pinned here in order
+# to avoid this file and the modules drifting apart. Every pinned version was checked against
+# the bioconda channel.
+
+name: atac_nf
+
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  # --- 1. Read QC and trimming ---------------------------------------------
+  - bioconda::fastqc=0.12.1
+  - bioconda::trimmomatic=0.39
+
+  # --- 2. Alignment --------------------------------------------------------
+  - bioconda::bwa=0.7.19
+  - bioconda::bwa-mem2=2.3
+
+  # --- 2C/2D. BAM handling, QC and Tn5 shift -------------------------------
+  - bioconda::samtools=1.24
+  - bioconda::htslib=1.24
+  - bioconda::picard=3.4.0
+  - bioconda::bedtools=2.31.1
+  # bin/ATAC_BAM_shifter_gappedAlign.pl uses smartmatch (~~) at 12 sites. That is deprecated
+  # from perl 5.38 and REMOVED in 5.42, where the script fails to compile -- hence the bound.
+  # Note the module's own spec (modules/local/atac_shift_bam.nf) carries no such bound yet.
+  - conda-forge::perl<5.42
+  # Not a pipeline tool: Nextflow's metrics collector shells out to `ps`, and with
+  # report/timeline/trace enabled a task whose environment lacks it fails before its script
+  # runs. Harmless here, essential in a container.
+  - conda-forge::procps-ng
+
+  # --- 3. Peak calling -----------------------------------------------------
+  - bioconda::macs3=3.0.4
+
+  # --- 5/6. Coverage tracks and TSS enrichment -----------------------------
+  - bioconda::deeptools=3.5.6
+
+  # --- 6. Counts matrix ----------------------------------------------------
+  - bioconda::subread=2.1.1
+
+  # --- 6C. Differential accessibility and sample QC ------------------------
+  - conda-forge::r-base
+  - bioconda::bioconductor-deseq2
+  - bioconda::bioconductor-biocparallel
+  - conda-forge::r-optparse
+  - conda-forge::r-ggplot2
+  - conda-forge::r-pheatmap
+  - conda-forge::r-rcolorbrewer
+
+  # --- 7. Reporting --------------------------------------------------------
+  - bioconda::multiqc=1.35

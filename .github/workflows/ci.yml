@@ -48,6 +48,10 @@ jobs:
             exit 1
           fi
           echo "All container URIs name their registry."
+      - name: Check environment.yml matches the module conda specs
+        # environment.yml duplicates the per-process conda directives, so it rots as soon as a
+        # module gains a tool. Versions are not compared -- three packages intentionally differ.
+        run: python3 tests/check_environment_yml.py
       - name: Check genome presets pair matching contig naming
         # A chr-prefixed blacklist against an Ensembl reference overlaps nothing and bedtools
         # calls that success, so this mismatch is silent. Assert the invariant at the source.
