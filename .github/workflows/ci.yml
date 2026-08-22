@@ -37,6 +37,17 @@ jobs:
         run: |
           python -c "import json; json.load(open('nextflow_schema.json'))"
           python -c "import json; json.load(open('assets/schema_input.json'))"
+      - name: Check every container URI names its registry
+        # A bare `biocontainers/...` resolves to Docker Hub, where the mulled images do not
+        # exist -- only quay.io hosts them. That fails at pull time, so it surfaces solely in
+        # the container job, and only once execution reaches that process.
+        run: |
+          if bad=$(grep -rn "'biocontainers/" modules/ 2>/dev/null); then
+            echo "Container URIs missing a registry prefix (mulled images live on quay.io):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All container URIs name their registry."
       - name: Check genome presets pair matching contig naming
         # A chr-prefixed blacklist against an Ensembl reference overlaps nothing and bedtools
         # calls that success, so this mismatch is silent. Assert the invariant at the source.
