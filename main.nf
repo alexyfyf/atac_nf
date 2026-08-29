@@ -118,7 +118,7 @@ def modeSetting(attribute, override) {
 // one fails here, by name, instead of resolving to null inside a script block several processes
 // later. tests/check_modes.py asserts the same contract in CI.
 def modeContract() {
-    return ['description', 'single_end', 'shift', 'adapter', 'macs_input', 'macs_extra_args', 'hmmratac']
+    return ['description', 'single_end', 'shift', 'trim', 'adapter', 'macs_input', 'macs_extra_args', 'hmmratac']
 }
 
 workflow ATACSEQ {
@@ -142,6 +142,7 @@ workflow ATACSEQ {
     }
 
     def do_shift        = modeSetting('shift', params.shift)
+    def do_trim         = modeSetting('trim', params.trim)
     def macs_input      = modeAttribute('macs_input')
     def macs_extra_args = modeAttribute('macs_extra_args')
 
@@ -227,8 +228,8 @@ workflow ATACSEQ {
     outdir          : ${params.outdir}
     aligner         : ${params.aligner}
     genome          : ${genome}
-    trim            : ${params.trim}
-    adapter         : ${adapter_path}
+    trim            : ${do_trim}
+    adapter         : ${do_trim ? adapter_path : '(not trimming)'}
     blacklist       : ${blacklist_path}
     Tn5 shift       : ${do_shift ? params.shift_script : 'skipped'}
     gtf             : ${gtf_path ?: '(none: skipping TSS enrichment and peak annotation)'}
@@ -252,7 +253,10 @@ workflow ATACSEQ {
     ch_fasta     = fasta_path ? Channel.value(file(fasta_path, checkIfExists: true))
                               : Channel.value([])
     ch_blacklist = Channel.value(file(blacklist_path, checkIfExists: true))
-    ch_adapter   = Channel.value(file(adapter_path, checkIfExists: true))
+    // Resolved only when trimming: nothing else consumes it, and a mode that does not trim
+    // should not fail on an --adapter path it will never read.
+    ch_adapter   = do_trim ? Channel.value(file(adapter_path, checkIfExists: true))
+                           : Channel.empty()
     // Resolved only when it will be used: a run that skips the shift should not fail on a
     // --shift_script path it is never going to read.
     ch_shift_script = do_shift ? Channel.value(file(params.shift_script, checkIfExists: true))
@@ -294,7 +298,7 @@ workflow ATACSEQ {
     ch_versions      = ch_versions.mix(FASTQC_RAW.out.versions.first())
     ch_multiqc_files = ch_multiqc_files.mix(FASTQC_RAW.out.zip.collect { _meta, zip -> zip })
 
-    if (params.trim) {
+    if (do_trim) {
         TRIMMOMATIC(ch_reads, ch_adapter)
         ch_trimmed_reads = TRIMMOMATIC.out.reads
         ch_versions      = ch_versions.mix(TRIMMOMATIC.out.versions.first())

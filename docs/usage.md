@@ -21,8 +21,9 @@ analysis are shared by all of them.
 
 | Attribute | `atac` | `chip` |
 |---|---|---|
-| `single_end` | `false` | `true` |
+| `single_end` | `false` | `false` |
 | `shift` | `true` | `false` |
+| `trim` | `true` | `false` |
 | `adapter` | `nextera` | `truseq` |
 | `macs_input` | `bed` | `bam` |
 | `macs_extra_args` | `--nomodel --shift -75 --extsize 150` | *(none)* |
@@ -32,6 +33,7 @@ Every one of these is a default that a command-line parameter overrides, exactly
 overrides a genome preset's blacklist:
 
 ```bash
+--mode chip --trim true            # ChIP-seq, but trim adapters after all
 --mode chip --adapter nextera      # ChIP-seq libraries prepared with Nextera
 --shift false                      # single-end ATAC-seq: see the note below
 --macs_format BAM                  # pin MACS3's input format
@@ -61,8 +63,9 @@ The pipeline therefore refuses single-end input at that step rather than emptyin
 
 ```csv
 sample,fastq_1,fastq_2,replicate,condition
-IP_1,/data/IP_1.fq.gz,,1,treated
-IP_2,/data/IP_2.fq.gz,,2,treated
+IP_1,/data/IP_1_R1.fq.gz,/data/IP_1_R2.fq.gz,1,treated
+IP_2,/data/IP_2_R1.fq.gz,/data/IP_2_R2.fq.gz,2,treated
+IP_3,/data/IP_3.fq.gz,,3,treated
 ```
 
 ```bash
@@ -71,8 +74,13 @@ nextflow run alexyfyf/atac_nf -profile docker \
     --genome hg38 --read_length 100 --outdir results
 ```
 
-No Tn5 shift, TruSeq adapters, and MACS3 called on the BAM so it builds its own shifting model.
-Paired-end ChIP-seq needs nothing beyond a second FASTQ column.
+No Tn5 shift, no trimming, and MACS3 called on the BAM so it builds its own shifting model —
+`--format BAMPE` for the two paired-end samples above and `--format BAM` for the single-end one.
+
+The no-trim default follows the
+[ChIP_nf](https://github.com/alexyfyf/ChIP_nf) pipeline, which does not trim: bwa mem soft-clips
+adapter-containing read ends, so trimming rarely changes a ChIP peak call. Pass `--trim true`
+(and `--adapter` if the library is not TruSeq) when you do want it.
 
 **Input/control tracks are not supported yet.** Peaks are called treatment-only, without
 `macs3 callpeak --control`. If your design is IP versus input, [nf-core/chipseq](https://nf-co.re/chipseq)
@@ -89,6 +97,7 @@ needs only these attributes:
 | `description` | string | Shown in the run banner |
 | `single_end` | bool | Default read layout (see above) |
 | `shift` | bool | Run Tn5 offset correction. Paired-end only |
+| `trim` | bool | Run Trimmomatic before alignment |
 | `adapter` | string | Default `--adapter`: `nextera`, `truseq`, or a path |
 | `macs_input` | `bed` \| `bam` | `bed` converts the BAM first so each read end is an independent insertion; `bam` hands MACS3 the alignments |
 | `macs_extra_args` | string | Mode-specific MACS3 flags |

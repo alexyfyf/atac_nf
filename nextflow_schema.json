@@ -160,8 +160,7 @@
             "properties": {
                 "trim": {
                     "type": "boolean",
-                    "default": true,
-                    "description": "Run trimmomatic. When false the reads go straight to alignment.",
+                    "description": "Run trimmomatic. When false the reads go straight to alignment. Defaults to the assay mode.",
                     "fa_icon": "fas fa-cut"
                 },
                 "adapter": {

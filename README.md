@@ -38,7 +38,18 @@ nextflow run alexyfyf/atac_nf \
     --input samplesheet.csv \
     --fasta /ref/mm10.fa --genome mm10 --read_length 100 \
     --outdir results
+
+# ChIP-seq: no Tn5 shift, no trimming, and MACS3 builds its own model
+nextflow run alexyfyf/atac_nf \
+    -profile docker \
+    --mode chip \
+    --input samplesheet.csv \
+    --genome hg38 --read_length 100 \
+    --outdir results
 ```
+
+`--mode` picks the assay: `atac` (default) or `chip`. See [Assay modes](#assay-modes) for what
+each one changes and how to add another.
 
 On a SLURM cluster:
 
@@ -78,15 +89,15 @@ the cross-sample analysis — is shared.
 
 | | `--mode atac` (default) | `--mode chip` |
 |---|---|---|
-| Expected read layout | paired-end | single-end |
+| Expected read layout | paired-end | paired-end |
 | Tn5 offset correction (+4/−5) | yes | no |
-| Default adapter set | Nextera | TruSeq |
+| Adapter trimming | Trimmomatic, Nextera | none (`--trim true` to enable, TruSeq) |
 | MACS3 input | BED of read ends, `--nomodel --shift -75 --extsize 150` | the BAM, MACS3 builds its own model |
 | MACS3 `--format` | `BED` | `BAMPE` (paired-end) or `BAM` (single-end), per sample |
 | `--hmmratac` | available | refused |
 
 The expected read layout is a *default*, not a constraint. The samplesheet decides per sample, so
-paired-end ChIP-seq and single-end ATAC-seq both work, and one run may mix the two — MACS3's
+single-end ChIP-seq and single-end ATAC-seq both work, and one run may mix layouts — MACS3's
 format is derived for each sample individually. What the mode's layout does is set the default for
 the legacy `--reads` glob and produce a warning when a whole samplesheet disagrees with it.
 
@@ -118,6 +129,7 @@ pipeline code to change. For instance CUT&Tag:
             description     = 'CUT&Tag'
             single_end      = false
             shift           = false
+            trim            = true
             adapter         = 'truseq'
             macs_input      = 'bam'
             macs_extra_args = '--nomodel --extsize 200'
@@ -170,7 +182,7 @@ deduplication, a different peak caller — needs a new attribute and the wiring 
 | `--igenomes_ignore` | `false` | Ignore the presets entirely; never resolve a reference from S3 |
 | `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
 | `--aligner_index` | — | Pre-built index directory; skips indexing |
-| `--trim` | `true` | Run trimmomatic |
+| `--trim` | mode default | Run Trimmomatic. `atac` trims, `chip` does not |
 | `--adapter` | mode default | `atac`/`nextera`, `truseq`, or a path to an adapter FASTA |
 | `--macs_qvalue` | `0.01` | MACS q-value cutoff |
 | `--shift` | mode default | Tn5 offset correction on/off. Paired-end libraries only |

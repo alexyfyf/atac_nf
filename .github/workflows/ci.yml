@@ -81,10 +81,6 @@ jobs:
           version: "${{ matrix.NXF_VER }}"
       - name: Run the pipeline in stub mode
         run: nextflow run . -profile test --outdir ./results -stub-run
-      - name: Run the ChIP-seq profile in stub mode
-        # Its own --outdir: the resume assertion below reads results/pipeline_info's trace file,
-        # and a second profile writing there would clobber it.
-        run: nextflow run . -profile test_chip --outdir ./results_chip -stub-run
       - name: Confirm -resume caches everything
         run: |
           nextflow run . -profile test --outdir ./results -stub-run -resume
@@ -110,6 +106,13 @@ jobs:
             exit 1
           fi
           echo "All tasks cached on resume."
+
+      - name: Run the ChIP-seq profile in stub mode
+        # After the resume assertion, not before it: `-resume` with no session id resumes the
+        # most recent run, so a second profile in between would leave the ATAC resume matching
+        # nothing. Its own --outdir for the same reason -- the assertion above reads
+        # results/pipeline_info's trace file.
+        run: nextflow run . -profile test_chip --outdir ./results_chip -stub-run
 
   nf-test:
     name: nf-test

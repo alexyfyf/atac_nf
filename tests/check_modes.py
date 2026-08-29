@@ -32,6 +32,7 @@ CONTRACT = {
     "description": STR,
     "single_end": BOOL,
     "shift": BOOL,
+    "trim": BOOL,
     "adapter": STR,
     "macs_input": CHOICE,
     "macs_extra_args": STR,
@@ -110,6 +111,7 @@ def main():
 
         if not failures or found[-1] == name:
             print(f"  {name:<8} shift={entry.get('shift', '?'):<5} "
+                  f"trim={entry.get('trim', '?'):<5} "
                   f"macs_input={entry.get('macs_input', '?'):<4} "
                   f"single_end={entry.get('single_end', '?'):<5} {entry.get('description', '')}")
 

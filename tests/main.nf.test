@@ -165,10 +165,33 @@ nextflow_pipeline {
             assert !path("$outputDir/ShiftedBamFiles").exists()
             // No Tn5 insertion BED: MACS3 is handed the alignments and models them itself.
             assert workflow.trace.tasks().every { !it.name.contains("BEDTOOLS_BAMTOBED") }
+            // The chip preset does not trim, so neither trimmomatic nor the post-trim FastQC run.
+            assert !path("$outputDir/trim").exists()
+            assert !path("$outputDir/post_fastqc").exists()
             // The profile mixes one paired-end and one single-end library on purpose.
             assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
             assert path("$outputDir/macs2/sample2_narrow_peaks.narrowPeak").exists()
             assert path("$outputDir/FRiP/sample2.metric").exists()
+        }
+    }
+
+    test("an explicit --trim overrides the mode's default") {
+
+        config "../conf/test_chip.config"
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                trim   = true
+            }
+        }
+
+        then {
+            // The preset says false; the command line has to win, as it does for --shift.
+            assert workflow.success
+            assert path("$outputDir/trim/sample1_trim.log").exists()
+            assert path("$outputDir/post_fastqc").exists()
         }
     }
 
