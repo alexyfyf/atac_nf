@@ -32,6 +32,15 @@ process ATAC_SHIFT_BAM {
     task.ext.when == null || task.ext.when
 
     script:
+    // The bundled perl script is paired-end only: it keeps a read only if its SAM flag is in
+    // the proper-pair list [99,147,83,163,81,161,97,145]. Single-end reads carry flags 0/16, so
+    // every one of them would be dropped and the output would be a header with no alignments --
+    // and nothing downstream errors on an empty BAM, it just silently finds no peaks.
+    if (meta.single_end) {
+        error("Sample '${meta.id}' is single-end, but the Tn5 shift script is paired-end only " +
+              "(it filters on proper-pair SAM flags and would silently drop every read).\n" +
+              "Pass --shift false, or use a mode whose preset sets shift = false.")
+    }
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     command -v perl >/dev/null 2>&1 || {
@@ -52,6 +61,13 @@ process ATAC_SHIFT_BAM {
     """
 
     stub:
+    // Guarded in the stub too: -stub-run only touches the output, so this is exactly
+    // where a silently-emptied BAM would go unnoticed. See the script block above.
+    if (meta.single_end) {
+        error("Sample '${meta.id}' is single-end, but the Tn5 shift script is paired-end only " +
+              "(it filters on proper-pair SAM flags and would silently drop every read).\n" +
+              "Pass --shift false, or use a mode whose preset sets shift = false.")
+    }
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}_shifted_sorted.bam ${prefix}_shifted_sorted.bam.bai

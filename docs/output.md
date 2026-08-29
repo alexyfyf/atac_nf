@@ -10,7 +10,7 @@ results/
 ├── post_fastqc/         FastQC on trimmed reads
 ├── RawBamFiles/         Pre-filtering BAMs (only with --save_raw_bam)
 ├── FilteredBamFiles/    Final BAMs and all alignment QC
-├── ShiftedBamFiles/     Tn5-shifted BAMs — the input to peak calling
+├── ShiftedBamFiles/     Tn5-shifted BAMs — the input to peak calling (only when shifting)
 ├── macs2/               MACS3 narrow and broad peaks
 ├── hmmratac/            MACS3 hmmratac peaks (only with --hmmratac)
 ├── FRiP/                Signal distribution metrics
@@ -45,6 +45,10 @@ how much was lost to quality filtering and duplication.
 BAMs with the Tn5 offset applied (+4 on the plus strand, −5 on the minus strand), which is what
 peak calling, FRiP and the coverage tracks all use.
 
+Present only when the run shifts — `--mode atac` without `--shift false`. Otherwise this
+directory does not exist and those three steps read `FilteredBamFiles/<sample>.final.bam`
+instead.
+
 ## macs2
 
 Per sample, for both the narrow and broad runs:
@@ -52,9 +56,11 @@ Per sample, for both the narrow and broad runs:
 - `<sample>_narrow_peaks.narrowPeak`, `<sample>_narrow_summits.bed`, `<sample>_narrow_peaks.xls`
 - `<sample>_broad_peaks.broadPeak`, `<sample>_broad_peaks.gappedPeak`, `<sample>_broad_peaks.xls`
 
-By default the shifted BAM is converted to BED first, so each read end is treated as an
-independent Tn5 insertion and called with `--nomodel --shift -75 --extsize 150`. Pass
-`--macs_format BAMPE` to call on whole fragments instead.
+How MACS3 is invoked depends on the assay mode. With `--mode atac` the BAM is converted to BED
+first, so each read end is treated as an independent Tn5 insertion and called with `--nomodel
+--shift -75 --extsize 150`. With `--mode chip` MACS3 is handed the BAM and builds its own shifting
+model, as `--format BAMPE` for paired-end samples and `--format BAM` for single-end ones.
+`--macs_format` pins the format when the derivation is wrong.
 
 ## FRiP
 
@@ -65,7 +71,9 @@ ReadsInPeaks  ReadsInBlacklist  ReadsInMT  TotalReads  FRiP  BlacklistFraction  
 ```
 
 ENCODE's guidance is FRiP > 0.3 for a good ATAC library, though the achievable value depends
-strongly on the tissue.
+strongly on the tissue. ChIP-seq values are not comparable: a sharp transcription-factor ChIP can
+sit around 0.05 and still be a good library, while a broad histone mark spreads signal over so much
+of the genome that the ratio means little on its own.
 
 ## MultiQC
 

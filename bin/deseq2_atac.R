@@ -33,7 +33,7 @@ rownames(raw) <- raw$Geneid
 
 # featureCounts emits Geneid, Chr, Start, End, Strand, Length, then one column per BAM.
 counts <- as.matrix(raw[, 7:ncol(raw), drop = FALSE])
-colnames(counts) <- sub("_shifted_sorted\\.bam$", "", basename(colnames(counts)))
+colnames(counts) <- sub("(_shifted_sorted|\\.final)?\\.bam$", "", basename(colnames(counts)))
 mode(counts) <- "integer"
 
 # ---- Load sample metadata ------------------------------------------------------------------

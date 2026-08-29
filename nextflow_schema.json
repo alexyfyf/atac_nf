@@ -11,6 +11,14 @@
             "fa_icon": "fas fa-terminal",
             "description": "Define where the pipeline should find input data and save output data.",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "default": "atac",
+                    "enum": ["atac", "chip"],
+                    "description": "Assay mode preset: sets the defaults for the Tn5 shift, the adapter set and how MACS3 is invoked.",
+                    "help_text": "Presets live in conf/modes.config and are plain data. Every attribute can be overridden individually on the command line, the same way a genome preset's blacklist can. Adding an assay means adding a block there and an entry to this enum; tests/check_modes.py keeps the two in step.",
+                    "fa_icon": "fas fa-flask"
+                },
                 "input": {
                     "type": "string",
                     "format": "file-path",
@@ -30,8 +38,7 @@
                 },
                 "single_end": {
                     "type": "boolean",
-                    "default": false,
-                    "description": "Treat --reads input as single-end. Ignored when --input is used, where it is decided per sample.",
+                    "description": "Treat --reads input as single-end. Defaults to the assay mode's expectation. Ignored when --input is used, where it is decided per sample.",
                     "fa_icon": "fas fa-align-left"
                 },
                 "outdir": {
@@ -159,8 +166,7 @@
                 },
                 "adapter": {
                     "type": "string",
-                    "default": "atac",
-                    "description": "Adapter set: 'atac'/'nextera', 'truseq', or a path to an adapter FASTA.",
+                    "description": "Adapter set: 'atac'/'nextera', 'truseq', or a path to an adapter FASTA. Defaults to the assay mode's adapter.",
                     "fa_icon": "fas fa-file"
                 }
             }
@@ -184,10 +190,15 @@
                 },
                 "macs_format": {
                     "type": "string",
-                    "default": "BED",
-                    "enum": ["BED", "BAMPE"],
-                    "description": "BED treats each read end as an independent Tn5 insertion; BAMPE calls on whole fragments.",
+                    "enum": ["BED", "BAM", "BAMPE"],
+                    "description": "Pin MACS3's input format. By default it is derived from the assay mode and each sample's read layout.",
+                    "help_text": "A mode with macs_input = 'bed' derives BED; a mode with macs_input = 'bam' derives BAMPE for paired-end samples and BAM for single-end ones.",
                     "fa_icon": "fas fa-file-code"
+                },
+                "shift": {
+                    "type": "boolean",
+                    "description": "Run Tn5 offset correction (+4/-5). Defaults to the assay mode. Paired-end libraries only: the bundled script filters on proper-pair SAM flags.",
+                    "fa_icon": "fas fa-arrows-alt-h"
                 },
                 "hmmratac": {
                     "type": "boolean",
@@ -295,7 +306,7 @@
             "type": "object",
             "fa_icon": "fas fa-file-import",
             "properties": {
-                "shift": {
+                "shift_script": {
                     "type": "string",
                     "format": "file-path",
                     "description": "Perl script used for Tn5 offset correction.",

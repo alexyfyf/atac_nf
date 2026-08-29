@@ -168,6 +168,10 @@ an over-amplified library. These are rules of thumb and vary with depth and prot
 
 ### 5c. Fragment size distribution — the key ATAC signature
 
+> ATAC-specific. A ChIP-seq or single-end run has no nucleosomal ladder to look for, and
+> single-end libraries produce no insert-size metrics at all. Skip to the next step for those.
+
+
 ```bash
 open results_real/FilteredBamFiles/<sample>.insert_size_histogram.pdf
 ```

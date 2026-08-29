@@ -7,9 +7,10 @@ workflow INPUT_CHECK {
     take:
     samplesheet // string : path to the samplesheet CSV, or null
     reads_glob  // string : legacy --reads glob, or null
+    single_end  // bool   : default layout for the glob path, from --single_end or the mode
 
     main:
-    ch_reads = readInput(samplesheet, reads_glob)
+    ch_reads = readInput(samplesheet, reads_glob, single_end)
 
     emit:
     reads = ch_reads // channel: [ val(meta), [ path(fastq) ] ]
@@ -17,12 +18,12 @@ workflow INPUT_CHECK {
 
 // Kept out of the workflow body because Nextflow's DSL2 workflow scope does not allow local
 // variable declarations alongside `take:` inputs.
-def readInput(samplesheet, reads_glob) {
+def readInput(samplesheet, reads_glob, single_end) {
     if (samplesheet) {
         return readSamplesheet(samplesheet)
     }
     if (reads_glob) {
-        return readGlob(reads_glob)
+        return readGlob(reads_glob, single_end)
     }
     error("No input given. Provide --input <samplesheet.csv> (preferred) or --reads '<glob>'.")
 }
@@ -50,16 +51,18 @@ def resolveFastq(path, base) {
     return file(base.resolve(path), checkIfExists: true)
 }
 
-def readGlob(reads_glob) {
+// This path has no per-sample metadata, so one layout applies to the whole run: --single_end if
+// given, otherwise whatever the assay mode expects (see conf/modes.config).
+def readGlob(reads_glob, single_end) {
     return Channel
-        .fromFilePairs(reads_glob, size: params.single_end ? 1 : 2)
+        .fromFilePairs(reads_glob, size: single_end ? 1 : 2)
         .ifEmpty {
             error("""No reads found matching: ${reads_glob}
     The glob must be quoted on the command line, and paired-end globs need a {1,2} pattern.
-    For single-end data pass --single_end.""")
+    This run expects ${single_end ? 'single' : 'paired'}-end reads; pass --single_end ${single_end ? 'false' : 'true'} to change that.""")
         }
         .map { name, fastqs ->
-            [ [ id: name, single_end: params.single_end, replicate: null, condition: null ],
+            [ [ id: name, single_end: single_end, replicate: null, condition: null ],
               fastqs instanceof List ? fastqs : [ fastqs ] ]
         }
 }

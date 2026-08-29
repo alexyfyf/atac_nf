@@ -8,6 +8,101 @@
 The pipeline declares both a `conda` spec and a `container` image for every process, so nothing
 needs to be pre-installed beyond the container/conda runtime itself.
 
+## Assay modes
+
+`--mode` picks an assay preset. The preset supplies defaults for the handful of steps that
+differ between assays; trimming, alignment, filtering, QC, coverage tracks and the cross-sample
+analysis are shared by all of them.
+
+```bash
+--mode atac     # default
+--mode chip
+```
+
+| Attribute | `atac` | `chip` |
+|---|---|---|
+| `single_end` | `false` | `true` |
+| `shift` | `true` | `false` |
+| `adapter` | `nextera` | `truseq` |
+| `macs_input` | `bed` | `bam` |
+| `macs_extra_args` | `--nomodel --shift -75 --extsize 150` | *(none)* |
+| `hmmratac` | permitted | refused |
+
+Every one of these is a default that a command-line parameter overrides, exactly as `--blacklist`
+overrides a genome preset's blacklist:
+
+```bash
+--mode chip --adapter nextera      # ChIP-seq libraries prepared with Nextera
+--shift false                      # single-end ATAC-seq: see the note below
+--macs_format BAM                  # pin MACS3's input format
+```
+
+### Read layout
+
+`single_end` is the layout the mode *expects*, not one it enforces. A samplesheet decides per
+sample, so paired-end ChIP-seq and single-end ATAC-seq both work, and a single run may mix them:
+MACS3's `--format` is derived for each sample individually (`BAMPE` for paired-end, `BAM` for
+single-end, `BED` when the mode calls on Tn5 insertion sites). The mode's value does two things —
+it sets the default for the legacy `--reads` glob, which has no per-sample metadata, and it
+produces a warning when a whole samplesheet disagrees with it, which usually means the wrong
+`--mode`.
+
+### Single-end ATAC-seq needs `--shift false`
+
+The bundled Tn5 offset script (`bin/ATAC_BAM_shifter_gappedAlign.pl`) keeps a read only if its
+SAM flag is one of the proper-pair values. Single-end reads carry flags 0 and 16, so every one of
+them would be dropped and the shifted BAM would hold a header and nothing else — after which MACS3
+finds no peaks, FRiP divides by zero and the whole run completes green having produced nothing.
+
+The pipeline therefore refuses single-end input at that step rather than emptying it. Pass
+`--shift false` to skip the correction, or use a mode whose preset already does.
+
+### ChIP-seq
+
+```csv
+sample,fastq_1,fastq_2,replicate,condition
+IP_1,/data/IP_1.fq.gz,,1,treated
+IP_2,/data/IP_2.fq.gz,,2,treated
+```
+
+```bash
+nextflow run alexyfyf/atac_nf -profile docker \
+    --mode chip --input samplesheet.csv \
+    --genome hg38 --read_length 100 --outdir results
+```
+
+No Tn5 shift, TruSeq adapters, and MACS3 called on the BAM so it builds its own shifting model.
+Paired-end ChIP-seq needs nothing beyond a second FASTQ column.
+
+**Input/control tracks are not supported yet.** Peaks are called treatment-only, without
+`macs3 callpeak --control`. If your design is IP versus input, [nf-core/chipseq](https://nf-co.re/chipseq)
+handles that pairing today.
+
+### Adding a mode
+
+Presets are data, in [`conf/modes.config`](../conf/modes.config). Adding an assay is a block there
+plus an entry in the `mode` enum of `nextflow_schema.json` — no pipeline code — as long as it
+needs only these attributes:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `description` | string | Shown in the run banner |
+| `single_end` | bool | Default read layout (see above) |
+| `shift` | bool | Run Tn5 offset correction. Paired-end only |
+| `adapter` | string | Default `--adapter`: `nextera`, `truseq`, or a path |
+| `macs_input` | `bed` \| `bam` | `bed` converts the BAM first so each read end is an independent insertion; `bam` hands MACS3 the alignments |
+| `macs_extra_args` | string | Mode-specific MACS3 flags |
+| `hmmratac` | bool | Whether `--hmmratac` is permitted |
+
+`tests/check_modes.py` runs in CI and asserts that every mode declares all of them with the right
+types, and that the schema enum matches the registry — so an incomplete preset fails there instead
+of resolving to null inside a script block. `main.nf` re-checks the selected mode at startup,
+which also covers a mode defined in your own config file.
+
+An assay that needs something no attribute covers — spike-in normalisation for CUT&Tag, skipping
+deduplication, SEACR instead of MACS3, an IgG control — needs a new attribute and the wiring to
+consume it. The registry gives that one obvious place to add it; it does not remove the work.
+
 ## Input
 
 ### Samplesheet (recommended)
@@ -23,7 +118,7 @@ KO_1,/data/KO_1_R1.fq.gz,,1,KO
 |---|---|---|
 | `sample` | yes | Must be unique; used for every output filename |
 | `fastq_1` | yes | Read 1 FASTQ (gzipped or plain) |
-| `fastq_2` | no | Leave empty for single-end samples |
+| `fastq_2` | no | Leave empty for single-end samples; layouts may be mixed in one sheet |
 | `replicate` | no | Carried through as metadata |
 | `condition` | no | Carried through as metadata |
 
@@ -41,7 +136,8 @@ and duplicate sample IDs all fail immediately with a message naming the offendin
 --reads 'data/*.fq.gz' --single_end
 ```
 
-This path has no per-sample metadata, so `--single_end` applies to the whole run.
+This path has no per-sample metadata, so one layout applies to the whole run: the assay
+mode's `single_end` default, or `--single_end` / `--single_end false` to override it.
 
 ## Reference
 

@@ -54,7 +54,7 @@ process LIBRARY_COMPLEXITY {
         "# format: 'tsv'" \\
         "# plot_type: 'table'" \\
         "# pconfig:" \\
-        "#     namespace: 'ATAC'" \\
+        "#     namespace: '${params.mode.toUpperCase()}'" \\
         "Sample\\tTotalReadPairs\\tDistinctReadPairs\\tOneReadPair\\tTwoReadPairs\\tNRF\\tPBC1\\tPBC2" \\
         > ${prefix}_pbc_mqc.tsv
     awk -v s="${prefix}" 'BEGIN{OFS="\\t"}{print s, \$1, \$2, \$3, \$4, \$5, \$6, \$7}' \\

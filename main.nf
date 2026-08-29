@@ -75,16 +75,86 @@ def gsizeForReadLength(raw, what) {
 }
 
 def resolveAdapter() {
-    if (params.adapter in ['atac', 'nextera']) {
+    def adapter = params.adapter ?: modeAttribute('adapter')
+    if (adapter in ['atac', 'nextera']) {
         return "${projectDir}/assets/adapters/NexteraPE-PE.fa"
     }
-    if (params.adapter == 'truseq') {
+    if (adapter == 'truseq') {
         return "${projectDir}/assets/adapters/TruSeq3-PE-2.fa"
     }
-    return params.adapter
+    return adapter
+}
+
+/*
+ * Assay mode presets. `params.modes` is a registry keyed by assay (see conf/modes.config), in
+ * the same shape as the `params.genomes` registry, and read the same way: the mode supplies a
+ * default and an explicit command-line parameter always overrides it.
+ */
+def modeAttribute(attribute) {
+    return params.modes[params.mode][attribute]
+}
+
+// Nextflow hands back the *string* "false" for `--shift false` when the config default is null,
+// so coerce rather than test truthiness -- the same trap the has_fasta check above works around.
+def asBool(value, what) {
+    if (value instanceof Boolean) {
+        return value
+    }
+    def text = value.toString().trim().toLowerCase()
+    if (text in ['true', 'yes', 'on', '1']) {
+        return true
+    }
+    if (text in ['false', 'no', 'off', '0']) {
+        return false
+    }
+    error("--${what} must be true or false, got '${value}'.")
+}
+
+def modeSetting(attribute, override) {
+    return override == null ? modeAttribute(attribute) : asBool(override, attribute)
+}
+
+// Every mode must declare all of these. Checked at startup so a newly added preset that forgets
+// one fails here, by name, instead of resolving to null inside a script block several processes
+// later. tests/check_modes.py asserts the same contract in CI.
+def modeContract() {
+    return ['description', 'single_end', 'shift', 'adapter', 'macs_input', 'macs_extra_args', 'hmmratac']
 }
 
 workflow ATACSEQ {
+
+    // Checked first: every later mode lookup assumes the key exists and is complete.
+    if (!params.modes?.containsKey(params.mode)) {
+        error("Unknown mode '${params.mode}'. Known modes: ${params.modes?.keySet()?.join(', ')}.\n" +
+              "Add one to conf/modes.config.")
+    }
+    def missing_attrs = modeContract().findAll { !params.modes[params.mode].containsKey(it) }
+    if (missing_attrs) {
+        error("Mode '${params.mode}' in conf/modes.config is missing: ${missing_attrs.join(', ')}.\n" +
+              "Every mode must declare ${modeContract().join(', ')}.")
+    }
+
+    // --shift used to be the path to the perl script and is now a boolean, so a stale command
+    // line would otherwise be read as "truthy: shift everything".
+    if (params.shift instanceof String && params.shift.endsWith('.pl')) {
+        error("--shift is now a boolean (Tn5 offset correction on/off). " +
+              "The script path moved to --shift_script.")
+    }
+
+    def do_shift        = modeSetting('shift', params.shift)
+    def macs_input      = modeAttribute('macs_input')
+    def macs_extra_args = modeAttribute('macs_extra_args')
+
+    if (!(macs_input in ['bed', 'bam'])) {
+        error("Mode '${params.mode}' sets macs_input = '${macs_input}'; it must be 'bed' or 'bam'.")
+    }
+    if (params.macs_format && !(params.macs_format in ['BED', 'BAM', 'BAMPE'])) {
+        error("--macs_format must be 'BED', 'BAM' or 'BAMPE', got '${params.macs_format}'.")
+    }
+    if (params.hmmratac && !modeAttribute('hmmratac')) {
+        error("--hmmratac models nucleosome occupancy from ATAC fragment lengths and is not " +
+              "applicable to mode '${params.mode}' (${modeAttribute('description')}).")
+    }
 
     def genome = resolveGenome()
 
@@ -148,6 +218,7 @@ workflow ATACSEQ {
     log.info """\
     A T A C - N F   ${workflow.manifest.version}
     ================================
+    mode            : ${params.mode} (${modeAttribute('description')})
     input           : ${params.input ?: params.reads}
     fasta           : ${fasta_path ?: '(none: using a pre-built index)'}
     aligner_index   : ${index_path ?: '(none: building the index)'}
@@ -159,9 +230,11 @@ workflow ATACSEQ {
     trim            : ${params.trim}
     adapter         : ${adapter_path}
     blacklist       : ${blacklist_path}
-    shiftscript     : ${params.shift}
+    Tn5 shift       : ${do_shift ? params.shift_script : 'skipped'}
     gtf             : ${gtf_path ?: '(none: skipping TSS enrichment and peak annotation)'}
     HMMRATAC        : ${params.hmmratac}
+    MACS_input      : ${macs_input == 'bed' ? 'BED (each read end an insertion site)' : 'BAM (MACS models fragments)'}
+    MACS_extra_args : ${macs_extra_args ?: '(none)'}
     MACS_qvalue     : ${params.macs2qval ?: params.macs_qvalue}
     MACS_gsize      : ${macs_gsize}
     GenomeSize      : ${effective_genome_size}
@@ -180,13 +253,33 @@ workflow ATACSEQ {
                               : Channel.value([])
     ch_blacklist = Channel.value(file(blacklist_path, checkIfExists: true))
     ch_adapter   = Channel.value(file(adapter_path, checkIfExists: true))
-    ch_shift     = Channel.value(file(params.shift, checkIfExists: true))
+    // Resolved only when it will be used: a run that skips the shift should not fail on a
+    // --shift_script path it is never going to read.
+    ch_shift_script = do_shift ? Channel.value(file(params.shift_script, checkIfExists: true))
+                               : Channel.empty()
 
     //
     // Input
     //
-    INPUT_CHECK(params.input, params.reads)
+    INPUT_CHECK(params.input, params.reads, modeSetting('single_end', params.single_end))
     ch_reads = INPUT_CHECK.out.reads
+
+    // Advisory only. Paired-end ChIP and single-end ATAC are both perfectly real, so the mode's
+    // expectation is a default rather than a constraint -- but a whole samplesheet disagreeing
+    // with it usually means the wrong --mode was passed.
+    ch_reads
+        .map { meta, _fastqs -> meta.single_end }
+        .toList()
+        .subscribe { flags ->
+            def expected = modeSetting('single_end', params.single_end)
+            def odd = flags.count { it != expected }
+            if (odd) {
+                log.warn("Mode '${params.mode}' expects ${expected ? 'single' : 'paired'}-end " +
+                         "libraries, but ${odd} of ${flags.size()} samples are " +
+                         "${expected ? 'paired' : 'single'}-end. Each sample is processed " +
+                         "according to its own samplesheet row; check --mode if that is not intended.")
+            }
+        }
 
     //
     // Reference
@@ -232,14 +325,28 @@ workflow ATACSEQ {
         .mix(BAM_FILTER_QC.out.picard_metrics.collect { _meta, f -> f })
         .mix(BAM_FILTER_QC.out.pbc_mqc.collect        { _meta, f -> f })
 
-    ATAC_SHIFT_BAM(BAM_FILTER_QC.out.bam, ch_shift)
-    ch_versions   = ch_versions.mix(ATAC_SHIFT_BAM.out.versions.first())
-    ch_shifted_bam = ATAC_SHIFT_BAM.out.bam
+    if (do_shift) {
+        ATAC_SHIFT_BAM(BAM_FILTER_QC.out.bam, ch_shift_script)
+        ch_versions    = ch_versions.mix(ATAC_SHIFT_BAM.out.versions.first())
+        ch_shifted_bam = ATAC_SHIFT_BAM.out.bam
+    }
+    else {
+        // Keeps the name through the rest of the workflow: five call sites downstream consume
+        // it, and "the BAM peak calling runs on" is what it means in either case.
+        ch_shifted_bam = BAM_FILTER_QC.out.bam
+    }
 
     //
     // PART 3: peak calling
     //
-    PEAK_CALLING(ch_shifted_bam, macs_gsize, ch_blacklist, params.hmmratac)
+    PEAK_CALLING(
+        ch_shifted_bam,
+        macs_gsize,
+        ch_blacklist,
+        params.hmmratac,
+        macs_input,
+        macs_extra_args
+    )
     ch_versions      = ch_versions.mix(PEAK_CALLING.out.versions)
     ch_multiqc_files = ch_multiqc_files.mix(PEAK_CALLING.out.narrow_xls.collect { _meta, f -> f })
 

@@ -4,6 +4,7 @@
 results/
 results_*/
 work/
+work_*/
 sampledata/
 smux*
 .nf-test/

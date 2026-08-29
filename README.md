@@ -1,9 +1,11 @@
-# ATAC-seq pipeline
+# ATAC-seq and ChIP-seq pipeline
 
 [![DOI](https://zenodo.org/badge/285426898.svg)](https://zenodo.org/badge/latestdoi/285426898)
 [![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.04.0-brightgreen.svg)](https://www.nextflow.io/)
 
-A Nextflow (DSL2) pipeline for ATAC-seq data analysis, following the workflow described in:
+A Nextflow (DSL2) pipeline for chromatin data. `--mode atac` follows the ATAC-seq workflow
+described below; `--mode chip` runs the same pipeline with the assay-specific steps swapped
+out (see [Assay modes](#assay-modes)). The ATAC-seq workflow follows:
 
 > Yan, F., Powell, D.R., Curtis, D.J. et al. **From reads to insight: a hitchhiker's guide to
 > ATAC-seq data analysis.** *Genome Biol* **21**, 22 (2020).
@@ -64,8 +66,70 @@ KO_1,/data/KO_1_R1.fq.gz,,1,KO
 paired- and single-end samples can be mixed in one run. `replicate` and `condition` are optional
 and are carried through as metadata.
 
-The older glob interface still works: `--reads 'data/*_R{1,2}.fq.gz'` (add `--single_end` for
-single-end data).
+The older glob interface still works: `--reads 'data/*_R{1,2}.fq.gz'`. It carries no per-sample
+metadata, so one layout applies to the whole run: the assay mode's default, or `--single_end` /
+`--single_end false` to override it.
+
+## Assay modes
+
+`--mode` selects an assay preset. A preset supplies the defaults for the steps that genuinely
+differ between assays; everything else — trimming, alignment, filtering, QC, coverage tracks and
+the cross-sample analysis — is shared.
+
+| | `--mode atac` (default) | `--mode chip` |
+|---|---|---|
+| Expected read layout | paired-end | single-end |
+| Tn5 offset correction (+4/−5) | yes | no |
+| Default adapter set | Nextera | TruSeq |
+| MACS3 input | BED of read ends, `--nomodel --shift -75 --extsize 150` | the BAM, MACS3 builds its own model |
+| MACS3 `--format` | `BED` | `BAMPE` (paired-end) or `BAM` (single-end), per sample |
+| `--hmmratac` | available | refused |
+
+The expected read layout is a *default*, not a constraint. The samplesheet decides per sample, so
+paired-end ChIP-seq and single-end ATAC-seq both work, and one run may mix the two — MACS3's
+format is derived for each sample individually. What the mode's layout does is set the default for
+the legacy `--reads` glob and produce a warning when a whole samplesheet disagrees with it.
+
+Every preset value can be overridden individually, the same way `--blacklist` overrides a genome
+preset's blacklist:
+
+```bash
+# ChIP-seq, paired-end input, nothing else to specify
+nextflow run alexyfyf/atac_nf -profile docker --mode chip \
+    --input samplesheet.csv --genome hg38 --read_length 100 --outdir results
+
+# single-end ATAC-seq: the bundled Tn5 shift script is paired-end only, so turn it off
+nextflow run alexyfyf/atac_nf -profile docker --input samplesheet.csv --shift false ...
+```
+
+Note that **input/control tracks are not yet supported**: ChIP-seq peaks are called
+treatment-only, without `macs3 callpeak --control`. For an IP-versus-input design, see
+[nf-core/chipseq](https://nf-co.re/chipseq).
+
+### Adding a mode
+
+Presets live in [`conf/modes.config`](conf/modes.config) and are plain data — a block per assay,
+in the same shape as the genome presets. A new assay whose needs are covered by the existing
+attributes is a block there plus an entry in the `mode` enum of `nextflow_schema.json`, with no
+pipeline code to change. For instance CUT&Tag:
+
+```groovy
+        cuttag {
+            description     = 'CUT&Tag'
+            single_end      = false
+            shift           = false
+            adapter         = 'truseq'
+            macs_input      = 'bam'
+            macs_extra_args = '--nomodel --extsize 200'
+            hmmratac        = false
+        }
+```
+
+`tests/check_modes.py` asserts in CI that every mode declares the full attribute set and that the
+schema enum matches, so an incomplete preset fails there rather than resolving to null somewhere
+inside a script block. `docs/usage.md` documents the attribute contract, and is honest about what
+still needs code: an assay that wants something no attribute covers — spike-in normalisation, no
+deduplication, a different peak caller — needs a new attribute and the wiring to use it.
 
 ## Pipeline steps
 
@@ -80,9 +144,9 @@ single-end data).
 | 2C | Duplicate marking | picard MarkDuplicates |
 | 2C | Alignment and insert-size metrics | picard CollectMultipleMetrics |
 | 2C | Library complexity (NRF, PBC1, PBC2) | samtools + bedtools |
-| 2D | Tn5 offset correction (+4/−5) | bundled perl script |
+| 2D | Tn5 offset correction (+4/−5) *(`--mode atac` only)* | bundled perl script |
 | 3A | Narrow and broad peak calling | MACS3 |
-| 3B | Semi-supervised peak calling (optional) | MACS3 `hmmratac` |
+| 3B | Semi-supervised peak calling *(optional, `--mode atac` only)* | MACS3 `hmmratac` |
 | 4A | Signal distribution (FRiP, blacklist, chrM) | bedtools + samtools |
 | 5A | Coverage tracks (RPGC, blacklist-filtered) | deeptools `bamCoverage` |
 | 6A | Consensus peak set across samples | bedtools |
@@ -96,6 +160,7 @@ single-end data).
 
 | Parameter | Default | Description |
 |---|---|---|
+| `--mode` | `atac` | Assay preset: `atac` or `chip`. See [Assay modes](#assay-modes) |
 | `--input` | — | Samplesheet CSV (preferred input) |
 | `--reads` | — | Legacy FASTQ glob |
 | `--fasta` | — | Reference genome FASTA. Required unless `--genome` or `--aligner_index` supplies one |
@@ -106,10 +171,11 @@ single-end data).
 | `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
 | `--aligner_index` | — | Pre-built index directory; skips indexing |
 | `--trim` | `true` | Run trimmomatic |
-| `--adapter` | `atac` | `atac`/`nextera`, `truseq`, or a path to an adapter FASTA |
+| `--adapter` | mode default | `atac`/`nextera`, `truseq`, or a path to an adapter FASTA |
 | `--macs_qvalue` | `0.01` | MACS q-value cutoff |
-| `--macs_format` | `BED` | `BED` (Tn5 insertions) or `BAMPE` (fragments) |
-| `--hmmratac` | `false` | Also run MACS3 hmmratac |
+| `--shift` | mode default | Tn5 offset correction on/off. Paired-end libraries only |
+| `--macs_format` | derived | Pin MACS3's input format: `BED`, `BAM` or `BAMPE` |
+| `--hmmratac` | `false` | Also run MACS3 hmmratac (`--mode atac` only) |
 | `--blacklist` | genome default | Override the blacklist BED |
 | `--gtf` | — | GTF annotation; enables TSS enrichment and peak annotation |
 | `--skip_consensus` | `false` | Skip consensus peaks, counts matrix and DESeq2 |

@@ -65,11 +65,11 @@ process FRIP_SCORE {
     printf '%b\\n' \\
         "# id: 'atac_frip'" \\
         "# section_name: 'Signal distribution (FRiP)'" \\
-        "# description: 'Fraction of shifted reads falling in called peaks, in the ENCODE blacklist, and on the mitochondrial genome.'" \\
+        "# description: 'Fraction of reads falling in called peaks, in the ENCODE blacklist, and on the mitochondrial genome.'" \\
         "# format: 'tsv'" \\
         "# plot_type: 'table'" \\
         "# pconfig:" \\
-        "#     namespace: 'ATAC'" \\
+        "#     namespace: '${params.mode.toUpperCase()}'" \\
         "Sample\\tReadsInPeaks\\tReadsInBlacklist\\tReadsInMT\\tTotalReads\\tFRiP\\tBlacklistFraction\\tMTFraction" \\
         > ${prefix}_frip_mqc.tsv
     awk -v s="${prefix}" 'BEGIN{OFS="\\t"}{print s, \$1, \$2, \$3, \$4, \$5, \$6, \$7}' \\

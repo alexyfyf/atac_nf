@@ -24,9 +24,17 @@ process MACS3_HMMRATAC {
     task.ext.when == null || task.ext.when
 
     script:
+    // macs3 hmmratac accepts only BAMPE/BEDPE: it derives the nucleosome-free, mono-, di- and
+    // tri-nucleosome states from the fragment-length distribution, which single-end data does
+    // not carry. Passing --format BAM here would simply be rejected by MACS3 further down.
+    if (meta.single_end) {
+        error("Sample '${meta.id}' is single-end, but macs3 hmmratac needs paired-end " +
+              "fragments to model nucleosome occupancy. Drop --hmmratac, or exclude " +
+              "single-end samples from this run.")
+    }
     def args      = task.ext.args   ?: ''
     def prefix    = task.ext.prefix ?: "${meta.id}"
-    def format    = meta.single_end ? 'BAM' : 'BAMPE'
+    def format    = 'BAMPE'
     def exclude   = blacklist ? "--blacklist $blacklist" : ''
     """
     macs3 hmmratac \\
@@ -43,6 +51,11 @@ process MACS3_HMMRATAC {
     """
 
     stub:
+    if (meta.single_end) {
+        error("Sample '${meta.id}' is single-end, but macs3 hmmratac needs paired-end " +
+              "fragments to model nucleosome occupancy. Drop --hmmratac, or exclude " +
+              "single-end samples from this run.")
+    }
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}_accessible_regions.narrowPeak

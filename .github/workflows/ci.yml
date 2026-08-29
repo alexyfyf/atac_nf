@@ -28,7 +28,7 @@ jobs:
           version: "24.04.0"
       - name: Resolve every profile
         run: |
-          for p in test docker singularity apptainer conda mamba wave slurm debug; do
+          for p in test test_chip docker singularity apptainer conda mamba wave slurm debug; do
             echo "::group::profile $p"
             nextflow config -profile "$p" > /dev/null
             echo "::endgroup::"
@@ -52,6 +52,12 @@ jobs:
         # environment.yml duplicates the per-process conda directives, so it rots as soon as a
         # module gains a tool. Versions are not compared -- three packages intentionally differ.
         run: python3 tests/check_environment_yml.py
+      - name: Check every assay mode is complete and matches the schema
+        # A mode is data, not code (conf/modes.config), so a forgotten attribute has no compiler
+        # to catch it -- the lookup returns null and the damage shows up much later as a MACS3
+        # command with a stray "null" in it, or a Tn5 shift that quietly does not run.
+        run: python3 tests/check_modes.py
+
       - name: Check genome presets pair matching contig naming
         # A chr-prefixed blacklist against an Ensembl reference overlaps nothing and bedtools
         # calls that success, so this mismatch is silent. Assert the invariant at the source.
@@ -75,6 +81,10 @@ jobs:
           version: "${{ matrix.NXF_VER }}"
       - name: Run the pipeline in stub mode
         run: nextflow run . -profile test --outdir ./results -stub-run
+      - name: Run the ChIP-seq profile in stub mode
+        # Its own --outdir: the resume assertion below reads results/pipeline_info's trace file,
+        # and a second profile writing there would clobber it.
+        run: nextflow run . -profile test_chip --outdir ./results_chip -stub-run
       - name: Confirm -resume caches everything
         run: |
           nextflow run . -profile test --outdir ./results -stub-run -resume
@@ -148,6 +158,12 @@ jobs:
           version: "24.04.0"
       - name: Run the pipeline for real
         run: nextflow run . -profile test,docker --outdir ./results
+      - name: Run the ChIP-seq profile for real
+        # Mixes one paired-end and one single-end library, so this is where MACS3's --format
+        # BAMPE and --format BAM derivations are both exercised against the real tool.
+        # Its own work directory: the assertions below inspect the .command.sh files this run
+        # produced, and the ATAC run's MACS3 calls legitimately carry the Tn5 arguments.
+        run: nextflow run . -profile test_chip,docker --outdir ./results_chip -w ./work_chip
       - name: Dump the failed tasks
         if: failure()
         # Nextflow prints the work directory of the first failure and truncates its logs. Dump
@@ -155,7 +171,7 @@ jobs:
         # instead of needing another round trip.
         run: |
           shopt -s nullglob
-          for exitcode in work/*/*/.exitcode; do
+          for exitcode in work/*/*/.exitcode work_chip/*/*/.exitcode; do
               d=$(dirname "$exitcode")
               status=$(cat "$exitcode")
               [ "$status" = "0" ] && continue
@@ -190,6 +206,36 @@ jobs:
           done
           echo "FRiP metrics:"; cat results/FRiP/*.metric
           echo "Library complexity:"; cat results/FilteredBamFiles/*_pbc.txt
+
+      - name: Check the ChIP-seq run skipped the shift and still produced peaks
+        run: |
+          set -euo pipefail
+          # sample1 is paired-end, sample2 single-end. An empty peak file here is exactly the
+          # failure the single-end guard exists to prevent, so assert non-empty, not just present.
+          for f in \
+            MultiQC/multiqc_report.html \
+            FilteredBamFiles/sample1.final.bam \
+            FilteredBamFiles/sample2.final.bam \
+            macs2/sample1_narrow_peaks.narrowPeak \
+            macs2/sample2_narrow_peaks.narrowPeak \
+            FRiP/sample1.metric \
+            FRiP/sample2.metric \
+            bigwig/sample2.bw \
+            consensus_peaks/consensus_peaks.bed
+          do
+            test -s "results_chip/$f" || { echo "missing or empty: results_chip/$f"; exit 1; }
+          done
+          test ! -d results_chip/ShiftedBamFiles || { echo "ChIP run should not shift"; exit 1; }
+          # The ATAC insertion-site arguments must not leak into a mode that models fragments.
+          if grep -rq -- '--extsize 150' work_chip/*/*/.command.sh; then
+            echo "Tn5 insertion args reached a ChIP-seq MACS3 call"; exit 1
+          fi
+          # sample1 is paired-end and sample2 single-end, so both derivations must appear.
+          formats=$(grep -rhoE -- '--format [A-Z]+' work_chip/*/*/.command.sh | sort -u)
+          echo "MACS3 formats used:"; echo "$formats"
+          echo "$formats" | grep -q -- '--format BAMPE' || { echo "no BAMPE call for the paired-end sample"; exit 1; }
+          echo "$formats" | grep -q -- '--format BAM$'  || { echo "no BAM call for the single-end sample"; exit 1; }
+          echo "ChIP FRiP metrics:"; cat results_chip/FRiP/*.metric
       - uses: actions/upload-artifact@v4
         if: always()
         with:

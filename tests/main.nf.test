@@ -105,7 +105,7 @@ nextflow_pipeline {
         }
     }
 
-    test("single-end samples are handled per sample") {
+    test("single-end data is refused by the Tn5 shift rather than silently emptied") {
 
         options "-stub-run"
 
@@ -117,10 +117,112 @@ nextflow_pipeline {
         }
 
         then {
+            // The bundled shift script keeps only proper pairs, so single-end reads would all
+            // be dropped and every downstream step would quietly produce nothing. Failing here
+            // is the whole point; the message has to name the way out.
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("is single-end, but the Tn5 shift script is paired-end only") }
+            assert workflow.stdout.any { it.contains("--shift false") }
+        }
+    }
+
+    test("single-end samples are handled per sample once the shift is off") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_single_end.csv"
+                shift  = false
+            }
+        }
+
+        then {
             assert workflow.success
             assert path("$outputDir/FilteredBamFiles/se1.final.bam").exists()
             // No insert-size metrics for single-end libraries
             assert !path("$outputDir/FilteredBamFiles/se1.insert_size_metrics").exists()
+            // Nothing was shifted, so peak calling ran on the filtered BAM
+            assert !path("$outputDir/ShiftedBamFiles").exists()
+            assert path("$outputDir/macs2/se1_narrow_peaks.narrowPeak").exists()
+        }
+    }
+
+    test("--mode chip skips the shift and calls MACS3 on the BAM") {
+
+        config "../conf/test_chip.config"
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/ShiftedBamFiles").exists()
+            // No Tn5 insertion BED: MACS3 is handed the alignments and models them itself.
+            assert workflow.trace.tasks().every { !it.name.contains("BEDTOOLS_BAMTOBED") }
+            // The profile mixes one paired-end and one single-end library on purpose.
+            assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
+            assert path("$outputDir/macs2/sample2_narrow_peaks.narrowPeak").exists()
+            assert path("$outputDir/FRiP/sample2.metric").exists()
+        }
+    }
+
+    test("--hmmratac is rejected in a mode that does not support it") {
+
+        config "../conf/test_chip.config"
+        options "-stub-run"
+
+        when {
+            params {
+                outdir   = "$outputDir"
+                hmmratac = true
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("not applicable to mode 'chip'") }
+        }
+    }
+
+    test("an unknown mode is an error that names the modes that do exist") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                mode   = "nosuchmode"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("Unknown mode 'nosuchmode'") }
+            assert workflow.stdout.any { it.contains("atac, chip") }
+        }
+    }
+
+    test("--shift given the old script path is caught, not read as truthy") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                shift  = "bin/ATAC_BAM_shifter_gappedAlign.pl"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("--shift is now a boolean") }
+            assert workflow.stdout.any { it.contains("--shift_script") }
         }
     }
 
