@@ -2,7 +2,10 @@ process PICARD_COLLECTMULTIPLEMETRICS {
     tag "$meta.id"
     label 'process_medium'
 
-    conda "bioconda::picard=3.4.0"
+    // r-base is NOT optional: CollectInsertSizeMetrics shells out to Rscript to draw the
+    // histogram, and picard throws (return code 255) rather than skipping when R is absent.
+    // The picard container happens to bundle R, so this only ever bit `-profile conda`.
+    conda "bioconda::picard=3.4.0 conda-forge::r-base"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
         'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/08/0861295baa7c01fc593a9da94e82b44a729dcaf8da92be8e565da109aa549b25/data' :
         'community.wave.seqera.io/library/picard:3.4.0--e9963040df0a9bf6' }"
