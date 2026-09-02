@@ -52,8 +52,6 @@ jobs:
         # environment.yml duplicates the per-process conda directives, so it rots as soon as a
         # module gains a tool. Versions are not compared -- three packages intentionally differ.
         run: python3 tests/check_environment_yml.py
-      - name: Check genome presets pair matching contig naming
-        # A chr-prefixed blacklist against an Ensembl reference overlaps nothing and bedtools
 
   stub:
     name: Stub run (Nextflow ${{ matrix.NXF_VER }})
