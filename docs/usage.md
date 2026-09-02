@@ -45,49 +45,64 @@ This path has no per-sample metadata, so `--single_end` applies to the whole run
 
 ## Reference
 
-Three ways to supply one, in order of convenience.
-
-### From AWS iGenomes
+You supply the reference. There is no genome-preset table and nothing is fetched from S3.
 
 ```bash
---genome mm10 --read_length 100
+--fasta /ref/mm10.fa \
+--blacklist assets/blacklists/mm10-blacklist.v2.bed \
+--gtf /ref/gencode.vM25.annotation.gtf.gz          # optional
 ```
 
-That resolves the FASTA, the bwa index, the GTF, the blacklist, the mitochondrial contig name and
-the MACS genome size from `s3://ngi-igenomes`. Nothing local is needed. Available presets:
+`--fasta` is required unless you pass a pre-built `--aligner_index`. `--blacklist` is required.
+`--gtf` is optional and enables TSS enrichment and peak annotation.
 
-| Genome | Source | Contig naming | Mitochondrion |
-|---|---|---|---|
-| `mm10` | UCSC | `chr1` | `chrM` |
-| `GRCm38` | Ensembl | `1` | `MT` |
-| `hg38` | UCSC | `chr1` | `chrM` |
-| `GRCh38` | NCBI | `chr1` | `chrM` |
-| `GRCh37` | Ensembl | `1` | `MT` |
+### Derived values
 
-`--read_length` is required because iGenomes stores the MACS genome size per read length
-(50/75/100/150/200 bp); the nearest entry is used and a warning is logged if it is not exact. The
-same table supplies the deeptools effective genome size, since both estimate the mappable genome
-at a given read length — deeptools' own published numbers differ slightly, so override with
-`--effective_genome_size` if you need theirs exactly.
+The constants a genome preset used to carry are computed from your FASTA by `GENOME_STATS`:
 
-An unknown `--genome` is an error, not a silent fallback.
+| Value | How | Override |
+|---|---|---|
+| Effective genome size | non-N bases in the FASTA | `--effective_genome_size` |
+| MACS genome size | same figure | `--macs_gsize` |
+| Mitochondrial contig | detected by name (`chrM`, `chrMT`, `MT`, `M`, `mt`) | `--mito_name` |
 
-Two caveats. First, an S3 reference is fetched on every fresh run, which for a human genome is
-tens of gigabytes — for repeated work, download once and point `--fasta`/`--aligner_index` at
-local copies. Second, iGenomes ships no bwa-mem2 index, so `--aligner bwa-mem2` ignores the
-preset's index and builds its own from the resolved FASTA.
+Deriving guarantees the values describe the reference actually in use. A preset keyed by
+`--genome mm10` could be paired with any FASTA and the mismatch was silent — an Ensembl GRCm38
+FASTA (contigs `1`, `2`, `MT`) with mm10's `mito_name` of `chrM` matches nothing, so the
+mitochondrial exclusion quietly stopped excluding and the PBC/NRF metrics came out wrong with no
+error.
 
-`--igenomes_ignore` disables the presets entirely, for offline or air-gapped runs.
+Read-length-aware mappable size is the one thing deriving cannot recover, since it is not a
+property of the sequence. The gap is small — for mm10, non-N is ~2.65e9 against 2.47e9 at 100 bp,
+about 7.6%, which moves MACS q-values negligibly. Pass `--macs_gsize` for the exact figure.
 
-### Your own reference
+With `--aligner_index` and no `--fasta` there is nothing to derive from, so `--macs_gsize` and
+`--effective_genome_size` become required.
+
+### Choosing a GTF
+
+It must use the same contig naming as your FASTA. `GTF_TO_TSS_BED` cross-checks the two and fails
+when they share no contigs, because the alternative is silent: a mismatched annotation intersects
+nothing, and neither bedtools nor deeptools treats an empty intersection as an error, so TSS
+enrichment comes out flat and peaks come out unannotated with nothing in the log to explain why.
+Partial overlap only warns — GENCODE and UCSC agree on the main chromosomes but not on scaffolds.
+
+TSS positions are taken from `gene` features, falling back to `transcript` then `exon` (grouped by
+gene, 5'-most coordinate). That matters because two of the most common annotations carry no `gene`
+feature at all: the iGenomes GTFs and UCSC `refGene.gtf` have only
+`exon`/`CDS`/`start_codon`/`stop_codon`.
+
+For mm10, GENCODE vM25 works well and is `chr`-prefixed:
 
 ```bash
---fasta /ref/mm10.fa --genome mm10 --read_length 100
+curl -O https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/gencode.vM25.annotation.gtf.gz
 ```
 
-`--fasta` overrides just the FASTA; the rest still comes from the preset. Any individual value can
-be overridden the same way: `--aligner_index`, `--gtf`, `--blacklist`, `--macs_gsize`,
-`--effective_genome_size`, `--mito_name`.
+### Blacklists
+
+ENCODE blacklists are bundled in `assets/blacklists/` for mm10, GRCm38, hg38 and GRCh37. Pick the
+one whose contig naming matches your reference; the pipeline also checks the blacklist against the
+BAM at runtime.
 
 For a genome with no preset, supply the values yourself:
 
@@ -154,7 +169,8 @@ Combine one execution profile with one packaging profile:
 | `debug` | Keep work directories and dump task hashes |
 
 ```bash
-nextflow run . -profile slurm,singularity --input samplesheet.csv --fasta /ref/mm10.fa --genome mm10
+nextflow run . -profile slurm,singularity --input samplesheet.csv \
+    --fasta /ref/mm10.fa --blacklist assets/blacklists/mm10-blacklist.v2.bed
 ```
 
 ### The aggregated environment file

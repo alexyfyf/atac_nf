@@ -12,6 +12,7 @@ nextflow.enable.dsl = 2
 
 include { INPUT_CHECK           } from './subworkflows/local/input_check'
 include { PREPARE_GENOME        } from './subworkflows/local/prepare_genome'
+include { GENOME_STATS          } from './modules/local/genome_stats'
 include { ALIGN_READS           } from './subworkflows/local/align_reads'
 include { BAM_FILTER_QC         } from './subworkflows/local/bam_filter_qc'
 include { PEAK_CALLING          } from './subworkflows/local/peak_calling'
@@ -26,54 +27,17 @@ include { DEEPTOOLS_BAMCOVERAGE } from './modules/local/deeptools_bamcoverage'
 include { MULTIQC               } from './modules/local/multiqc'
 
 /*
- * Reference resolution. `--genome` supersedes the older `--species`, and an explicit
- * --blacklist / --macs_gsize / --effective_genome_size always wins over the genome defaults.
+ * Reference resolution.
  *
- * These are functions rather than script-level variables because the strict script parser in
+ * There is no genome-preset table any more: `--fasta` and `--gtf` are supplied by the user, and
+ * the constants that AWS iGenomes used to provide (effective genome size, MACS gsize, the
+ * mitochondrial contig name) are derived from that FASTA by GENOME_STATS. See its header for why
+ * deriving is safer than a lookup keyed by `--genome`.
+ *
+ * This is a function rather than a script-level variable because the strict script parser in
  * Nextflow 25+ allows only declarations at script level — statements have to live inside a
  * process, workflow or function.
  */
-def resolveGenome() {
-    return params.genome ?: params.species
-}
-
-def genomeAttribute(attribute) {
-    if (params.igenomes_ignore) {
-        return null
-    }
-    def genome = resolveGenome()
-    return genome ? params.genomes[genome][attribute] : null
-}
-
-// Reference *paths* (FASTA, index, GTF) resolve only from an explicit --genome, never from the
-// deprecated --species alias. --species defaults to mm10, so honouring it here would turn a run
-// that simply forgot --fasta into a silent multi-gigabyte download from S3.
-def igenomesAttribute(attribute) {
-    if (params.igenomes_ignore || !params.genome) {
-        return null
-    }
-    return params.genomes[params.genome][attribute]
-}
-
-// iGenomes stores macs_gsize as a table keyed by read length, because mappable genome size
-// depends on it. Accepts a plain scalar too, so `--macs_gsize hs` and a bare number keep working.
-def gsizeForReadLength(raw, what) {
-    if (raw == null || !(raw instanceof Map)) {
-        return raw
-    }
-    if (!params.read_length) {
-        error("Genome '${resolveGenome()}' gives ${what} as a per-read-length table " +
-              "(${raw.keySet().collect { it as Integer }.sort().join(', ')} bp).\n" +
-              "Pass --read_length <bp> to select one, or set --${what} explicitly.")
-    }
-    def want = params.read_length as Integer
-    def key  = raw.keySet().min { Math.abs((it as Integer) - want) }
-    if ((key as Integer) != want) {
-        log.warn("No ${what} entry for a read length of ${want} bp; using the nearest, ${key} bp.")
-    }
-    return raw[key]
-}
-
 def resolveAdapter() {
     if (params.adapter in ['atac', 'nextera']) {
         return "${projectDir}/assets/adapters/NexteraPE-PE.fa"
@@ -86,27 +50,8 @@ def resolveAdapter() {
 
 workflow ATACSEQ {
 
-    def genome = resolveGenome()
-
-    // Checked before the attribute lookups below, not inside them: those short-circuit when
-    // --blacklist / --macs_gsize / --effective_genome_size are given explicitly, which would
-    // let an unknown --genome slip through unreported.
-    if (genome && !params.genomes.containsKey(genome)) {
-        error("Unknown genome '${genome}'. Known genomes: ${params.genomes.keySet().join(', ')}.\n" +
-              "Add it to conf/igenomes.config, or pass --fasta, --blacklist, --macs_gsize and\n" +
-              "--effective_genome_size directly.")
-    }
-
-    def blacklist_path = params.blacklist ?: genomeAttribute('blacklist')
-    def mito_name      = params.mito_name ?: genomeAttribute('mito_name') ?: 'chrM'
+    def blacklist_path = params.blacklist
     def adapter_path   = resolveAdapter()
-
-    def macs_gsize = gsizeForReadLength(params.macs_gsize ?: genomeAttribute('macs_gsize'), 'macs_gsize')
-    // iGenomes has no effective_genome_size key. Both quantities estimate the mappable genome at
-    // a given read length, so the same table serves; deeptools' published numbers differ slightly,
-    // hence --effective_genome_size to override.
-    def effective_genome_size = params.effective_genome_size
-        ?: gsizeForReadLength(genomeAttribute('macs_gsize'), 'effective_genome_size')
 
     // A bare `--fasta` with no value is parsed by Nextflow as the boolean true, so check the
     // type as well as emptiness; otherwise it fails much later inside file(). The literal
@@ -116,33 +61,53 @@ workflow ATACSEQ {
     def has_fasta = params.fasta && !(params.fasta instanceof Boolean) &&
                     !(params.fasta.toString().trim().toLowerCase() in ['', 'null', 'none', 'false'])
 
-    def fasta_path = has_fasta ? params.fasta : igenomesAttribute('fasta')
-    // iGenomes ships no bwa-mem2 index, so its `bwa` entry is offered to bwa only; bwa-mem2
-    // builds its own from the resolved FASTA. Handing it over would trip the mismatch guard in
-    // BWAMEM2_MEM, but it should never get that far.
+    def fasta_path = has_fasta ? params.fasta : null
     def index_path = params.aligner_index
-        ?: (params.aligner == 'bwa' ? igenomesAttribute('bwa') : null)
-    def gtf_path   = params.gtf ?: igenomesAttribute('gtf')
+    def gtf_path   = params.gtf
 
     // The FASTA is only strictly needed to build an index. With --aligner_index the run can
-    // proceed without it; the only cost is the MISMATCH-related fields of picard's alignment
-    // summary metrics, which picard cannot compute without a reference.
+    // proceed without it, at two costs: the MISMATCH-related fields of picard's alignment summary
+    // metrics, which picard cannot compute without a reference, and the derived genome constants,
+    // which then have to be given explicitly.
     if (!fasta_path && !index_path) {
-        error("No reference given. Pass --fasta <genome.fa>, --aligner_index <dir> holding a " +
-              "pre-built ${params.aligner} index, or --genome <${params.genomes.keySet().join('|')}> " +
-              "to take both from AWS iGenomes.")
+        error("No reference given. Pass --fasta <genome.fa>, or --aligner_index <dir> holding a " +
+              "pre-built ${params.aligner} index.")
     }
     if (!blacklist_path?.toString()?.trim()) {
-        error("No blacklist available for genome '${genome}'. Pass --blacklist <bed>.")
-    }
-    if (!macs_gsize?.toString()?.trim()) {
-        error("No MACS effective genome size available for genome '${genome}'. Pass --macs_gsize.")
-    }
-    if (!effective_genome_size?.toString()?.trim()) {
-        error("No effective genome size available for genome '${genome}'. Pass --effective_genome_size.")
+        error("No blacklist given. Pass --blacklist <bed>.\n" +
+              "ENCODE blacklists for common genomes are bundled: see assets/blacklists/.")
     }
     if (!(params.aligner in ['bwa', 'bwa-mem2'])) {
         error("--aligner must be 'bwa' or 'bwa-mem2', got '${params.aligner}'.")
+    }
+    // The genome-preset params are gone. Nothing enforces nextflow_schema.json at runtime (there
+    // is no nf-schema plugin), so without this an old command line is accepted and silently
+    // ignored -- the worst outcome, because the run looks fine and the reference is not what the
+    // user asked for.
+    def removed = [
+        genome         : 'pass --fasta, --blacklist and --gtf directly',
+        species        : 'pass --fasta, --blacklist and --gtf directly',
+        read_length    : 'no longer used; --macs_gsize is derived from the FASTA',
+        igenomes_base  : 'iGenomes support has been removed',
+        igenomes_ignore: 'iGenomes support has been removed',
+    ]
+    def used = removed.keySet().findAll { params.containsKey(it) && params[it] != null }
+    if (used) {
+        error("These parameters have been removed:\n" +
+              used.collect { "  --${it}: ${removed[it]}" }.join('\n') +
+              "\n\nThe pipeline no longer ships genome presets. Supply the reference yourself:\n" +
+              "  --fasta <genome.fa> --blacklist <bed> [--gtf <annotation.gtf>]\n" +
+              "Effective/MACS genome size and the mitochondrial contig are derived from the FASTA.\n" +
+              "See docs/usage.md.")
+    }
+    // Without a FASTA there is nothing to derive the genome constants from, so they are required.
+    if (!fasta_path) {
+        ['macs_gsize', 'effective_genome_size'].each { p ->
+            if (!params[p]?.toString()?.trim()) {
+                error("--${p} is required when running without --fasta: it is normally derived " +
+                      "from the reference sequence.")
+            }
+        }
     }
 
     log.info """\
@@ -151,11 +116,9 @@ workflow ATACSEQ {
     input           : ${params.input ?: params.reads}
     fasta           : ${fasta_path ?: '(none: using a pre-built index)'}
     aligner_index   : ${index_path ?: '(none: building the index)'}
-    read_length     : ${params.read_length ?: '(not set)'}
-    mito_name       : ${mito_name}
+    mito_name       : ${params.mito_name ?: '(auto-detected from the FASTA)'}
     outdir          : ${params.outdir}
     aligner         : ${params.aligner}
-    genome          : ${genome}
     trim            : ${params.trim}
     adapter         : ${adapter_path}
     blacklist       : ${blacklist_path}
@@ -163,8 +126,8 @@ workflow ATACSEQ {
     gtf             : ${gtf_path ?: '(none: skipping TSS enrichment and peak annotation)'}
     HMMRATAC        : ${params.hmmratac}
     MACS_qvalue     : ${params.macs2qval ?: params.macs_qvalue}
-    MACS_gsize      : ${macs_gsize}
-    GenomeSize      : ${effective_genome_size}
+    MACS_gsize      : ${params.macs_gsize ?: '(derived: non-N bases in the FASTA)'}
+    GenomeSize      : ${params.effective_genome_size ?: '(derived: non-N bases in the FASTA)'}
     """.stripIndent()
 
     if (!fasta_path) {
@@ -194,6 +157,36 @@ workflow ATACSEQ {
     PREPARE_GENOME(ch_fasta, params.aligner, index_path)
     ch_versions = ch_versions.mix(PREPARE_GENOME.out.versions)
 
+    // Genome constants. Explicit params win; otherwise derive them from the FASTA. `.first()`
+    // turns each single-item queue channel into a value channel, which matters because these are
+    // consumed by more than one process — a queue channel would feed only the first of them.
+    if (fasta_path) {
+        GENOME_STATS(ch_fasta)
+        ch_versions   = ch_versions.mix(GENOME_STATS.out.versions)
+        // No .first() needed: ch_fasta is a value channel, so GENOME_STATS runs once and its
+        // outputs are value channels too — reusable by more than one consumer as they stand.
+        ch_stat_size  = GENOME_STATS.out.effective_genome_size.map { f -> f.text.trim() }
+        ch_stat_mito  = GENOME_STATS.out.mito_name.map { f -> f.text.trim() }
+        ch_fai        = GENOME_STATS.out.fai
+    }
+    else {
+        ch_stat_size = Channel.value('')
+        ch_stat_mito = Channel.value('')
+        ch_fai       = Channel.value([])
+    }
+
+    ch_macs_gsize = params.macs_gsize
+        ? Channel.value(params.macs_gsize)
+        : ch_stat_size
+    ch_effective_genome_size = params.effective_genome_size
+        ? Channel.value(params.effective_genome_size)
+        : ch_stat_size
+    // 'chrM' is the last resort so a FASTA with no recognisable mitochondrial contig still runs;
+    // GENOME_STATS warns in that case, and the exclusion simply matches nothing.
+    ch_mito_name = params.mito_name
+        ? Channel.value(params.mito_name)
+        : ch_stat_mito.map { it ?: 'chrM' }
+
     //
     // PART 1: preprocessing
     //
@@ -222,7 +215,7 @@ workflow ATACSEQ {
     ALIGN_READS(ch_trimmed_reads, PREPARE_GENOME.out.index, params.aligner)
     ch_versions = ch_versions.mix(ALIGN_READS.out.versions)
 
-    BAM_FILTER_QC(ALIGN_READS.out.bam, ch_fasta, mito_name)
+    BAM_FILTER_QC(ALIGN_READS.out.bam, ch_fasta, ch_mito_name)
     ch_versions = ch_versions.mix(BAM_FILTER_QC.out.versions)
 
     ch_multiqc_files = ch_multiqc_files
@@ -239,21 +232,21 @@ workflow ATACSEQ {
     //
     // PART 3: peak calling
     //
-    PEAK_CALLING(ch_shifted_bam, macs_gsize, ch_blacklist, params.hmmratac)
+    PEAK_CALLING(ch_shifted_bam, ch_macs_gsize, ch_blacklist, params.hmmratac)
     ch_versions      = ch_versions.mix(PEAK_CALLING.out.versions)
     ch_multiqc_files = ch_multiqc_files.mix(PEAK_CALLING.out.narrow_xls.collect { _meta, f -> f })
 
     //
     // PART 4: signal distribution
     //
-    FRIP_SCORE(ch_shifted_bam.join(PEAK_CALLING.out.narrow_peak), ch_blacklist, mito_name)
+    FRIP_SCORE(ch_shifted_bam.join(PEAK_CALLING.out.narrow_peak), ch_blacklist, ch_mito_name)
     ch_versions      = ch_versions.mix(FRIP_SCORE.out.versions.first())
     ch_multiqc_files = ch_multiqc_files.mix(FRIP_SCORE.out.mqc.collect { _meta, f -> f })
 
     //
     // PART 5: visualisation
     //
-    DEEPTOOLS_BAMCOVERAGE(ch_shifted_bam, effective_genome_size, ch_blacklist)
+    DEEPTOOLS_BAMCOVERAGE(ch_shifted_bam, ch_effective_genome_size, ch_blacklist)
     ch_versions = ch_versions.mix(DEEPTOOLS_BAMCOVERAGE.out.versions.first())
 
     //
@@ -264,7 +257,8 @@ workflow ATACSEQ {
         ch_shifted_bam,
         DEEPTOOLS_BAMCOVERAGE.out.bigwig,
         ch_blacklist,
-        gtf_path
+        gtf_path,
+        ch_fai
     )
     ch_versions      = ch_versions.mix(DOWNSTREAM_ANALYSIS.out.versions)
     ch_multiqc_files = ch_multiqc_files.mix(DOWNSTREAM_ANALYSIS.out.multiqc_files)

@@ -22,19 +22,13 @@ Requires Nextflow ≥24.04 and one of Docker, Singularity/Apptainer or Conda.
 # check the wiring without running any tool
 nextflow run alexyfyf/atac_nf -profile test,docker --outdir results -stub-run
 
-# a real run, taking the reference from AWS iGenomes
+# a real run
 nextflow run alexyfyf/atac_nf \
     -profile docker \
     --input samplesheet.csv \
-    --genome mm10 \
-    --read_length 100 \
-    --outdir results
-
-# or with your own reference
-nextflow run alexyfyf/atac_nf \
-    -profile docker \
-    --input samplesheet.csv \
-    --fasta /ref/mm10.fa --genome mm10 --read_length 100 \
+    --fasta /ref/mm10.fa \
+    --blacklist assets/blacklists/mm10-blacklist.v2.bed \
+    --gtf /ref/gencode.vM25.annotation.gtf.gz \
     --outdir results
 ```
 
@@ -45,7 +39,7 @@ nextflow run alexyfyf/atac_nf \
     -profile slurm,singularity \
     --input samplesheet.csv \
     --fasta /ref/mm10.fa \
-    --genome mm10 \
+    --blacklist assets/blacklists/mm10-blacklist.v2.bed \
     --slurm_account myaccount \
     --slurm_queue genomics \
     --outdir results
@@ -98,11 +92,7 @@ single-end data).
 |---|---|---|
 | `--input` | — | Samplesheet CSV (preferred input) |
 | `--reads` | — | Legacy FASTQ glob |
-| `--fasta` | — | Reference genome FASTA. Required unless `--genome` or `--aligner_index` supplies one |
-| `--genome` | — | AWS iGenomes preset: `mm10`, `GRCm38`, `hg38`, `GRCh38`, `GRCh37`. Supplies FASTA, bwa index, GTF, blacklist, mitochondrial name and MACS gsize |
-| `--read_length` | — | Required with `--genome`: selects the MACS/effective genome size (50/75/100/150/200) |
-| `--igenomes_base` | `s3://ngi-igenomes/igenomes` | Base path for iGenomes |
-| `--igenomes_ignore` | `false` | Ignore the presets entirely; never resolve a reference from S3 |
+| `--fasta` | — | Reference genome FASTA. Required unless `--aligner_index` supplies one |
 | `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
 | `--aligner_index` | — | Pre-built index directory; skips indexing |
 | `--trim` | `true` | Run trimmomatic |
@@ -110,7 +100,10 @@ single-end data).
 | `--macs_qvalue` | `0.01` | MACS q-value cutoff |
 | `--macs_format` | `BED` | `BED` (Tn5 insertions) or `BAMPE` (fragments) |
 | `--hmmratac` | `false` | Also run MACS3 hmmratac |
-| `--blacklist` | genome default | Override the blacklist BED |
+| `--blacklist` | — | **Required.** Blacklist BED; ENCODE beds for common genomes are bundled in `assets/blacklists/` |
+| `--mito_name` | auto | Mitochondrial contig; auto-detected from the FASTA |
+| `--macs_gsize` | derived | MACS genome size; derived from the FASTA when unset |
+| `--effective_genome_size` | derived | For bamCoverage RPGC; derived from the FASTA when unset |
 | `--gtf` | — | GTF annotation; enables TSS enrichment and peak annotation |
 | `--skip_consensus` | `false` | Skip consensus peaks, counts matrix and DESeq2 |
 | `--skip_deseq2` | `false` | Skip DESeq2 only |
@@ -122,31 +115,39 @@ See [docs/usage.md](docs/usage.md) for details and [docs/output.md](docs/output.
 description of the outputs. [docs/validation.md](docs/validation.md) is a step-by-step plan for
 checking a run against a real dataset, with the QC thresholds to expect at each stage.
 
-## Genome presets
+## Reference
 
-`--genome` resolves the reference from [AWS iGenomes](https://ewels.github.io/AWS-iGenomes/):
-FASTA, bwa index, GTF, blacklist, mitochondrial contig name and MACS genome size, all from
-`s3://ngi-igenomes`. Presets live in [`conf/igenomes.config`](conf/igenomes.config):
+You supply the reference: `--fasta` (required, unless you pass a pre-built `--aligner_index`),
+`--blacklist` (required), and `--gtf` (optional; enables TSS enrichment and peak annotation).
 
-| Genome | Source | Contig naming |
+There is no genome-preset table. The constants a preset used to carry are derived from your FASTA
+instead, by `GENOME_STATS`:
+
+| Value | How it is obtained | Override |
 |---|---|---|
-| `mm10` | UCSC | `chr1`, `chrM` |
-| `GRCm38` | Ensembl | `1`, `MT` |
-| `hg38` | UCSC | `chr1`, `chrM` |
-| `GRCh38` | NCBI | `chr1`, `chrM` |
-| `GRCh37` | Ensembl | `1`, `MT` |
+| Effective genome size | non-N bases in the FASTA | `--effective_genome_size` |
+| MACS genome size | same figure | `--macs_gsize` |
+| Mitochondrial contig | detected by name (`chrM`, `chrMT`, `MT`, …) | `--mito_name` |
 
-Each preset is paired with a blacklist whose contig naming matches its own reference, and with
-the right mitochondrial spelling. That pairing matters: a `chr`-prefixed blacklist against an
-Ensembl reference overlaps nothing, and bedtools reports that as success — so blacklist filtering
-would silently do nothing. `tests/check_genome_naming.py` asserts the invariant in CI, and the
-pipeline also checks the blacklist against the BAM at runtime, which covers a hand-supplied
-`--blacklist` too.
+Deriving beats a lookup because the values then describe the reference actually in use. A table
+keyed by `--genome mm10` can be paired with any FASTA, and the mismatch is silent: point an
+Ensembl GRCm38 FASTA (contigs `1`, `2`, `MT`) at mm10's preset and `mito_name` becomes `chrM`,
+which matches nothing, so the mitochondrial exclusion quietly stops excluding and the PBC/NRF
+metrics come out wrong with no error.
 
-`--read_length` is required with `--genome`, because iGenomes stores the MACS genome size per
-read length. Any individual value can be overridden — `--fasta`, `--aligner_index`, `--gtf`,
-`--blacklist`, `--macs_gsize`, `--effective_genome_size`, `--mito_name` — and
-`--igenomes_ignore` disables the presets entirely for offline use.
+The one thing deriving cannot recover is read-length-aware mappable size — iGenomes tabulated it
+per read length, and it is not a property of the sequence. The gap is small: for mm10, non-N is
+~2.65e9 against 2.47e9 at 100 bp, about 7.6%, which moves MACS q-values negligibly. Pass
+`--macs_gsize` if you want the precise figure.
+
+Contig-naming mismatches are the nastiest failure mode here, because they are silent: a
+`chr`-prefixed annotation against an Ensembl-named reference overlaps nothing, and bedtools
+reports that as success. The pipeline checks the blacklist against the BAM at runtime, and
+`GTF_TO_TSS_BED` cross-checks GTF contigs against the FASTA index and fails when they do not
+overlap at all.
+
+ENCODE blacklists are bundled in [`assets/blacklists/`](assets/blacklists) for mm10, GRCm38,
+hg38 and GRCh37 — pick the one matching your reference's contig naming.
 
 Note that iGenomes ships no bwa-mem2 index, so `--aligner bwa-mem2` always builds its own from
 the resolved FASTA.

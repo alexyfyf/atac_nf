@@ -19,6 +19,7 @@ workflow DOWNSTREAM_ANALYSIS {
     ch_bigwig    // channel: [ val(meta), path(bigwig) ]
     ch_blacklist // channel: path(blacklist)  (value channel)
     gtf          // string : path to a GTF, or null
+    ch_fai       // channel: path(fai)  (value channel; [] to skip the contig cross-check)
 
     main:
     ch_versions      = Channel.empty()
@@ -63,7 +64,7 @@ workflow DOWNSTREAM_ANALYSIS {
     }
 
     if (gtf) {
-        GTF_TO_TSS_BED(Channel.value(file(gtf, checkIfExists: true)))
+        GTF_TO_TSS_BED(Channel.value(file(gtf, checkIfExists: true)), ch_fai)
         ch_versions = ch_versions.mix(GTF_TO_TSS_BED.out.versions)
         ch_tss = GTF_TO_TSS_BED.out.bed.collect()
 

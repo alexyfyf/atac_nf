@@ -44,7 +44,14 @@
                 "publish_dir_mode": {
                     "type": "string",
                     "default": "copy",
-                    "enum": ["symlink", "rellink", "link", "copy", "copyNoFollow", "move"],
+                    "enum": [
+                        "symlink",
+                        "rellink",
+                        "link",
+                        "copy",
+                        "copyNoFollow",
+                        "move"
+                    ],
                     "description": "Method used to save pipeline results to the output directory.",
                     "fa_icon": "fas fa-copy",
                     "hidden": true
@@ -77,48 +84,18 @@
                     "description": "Path to the reference genome FASTA. Required unless --aligner_index or --genome supplies one.",
                     "fa_icon": "fas fa-file"
                 },
-                "genome": {
-                    "type": "string",
-                    "enum": ["mm10", "GRCm38", "hg38", "GRCh38", "GRCh37"],
-                    "description": "AWS iGenomes preset, supplying the FASTA, bwa index, GTF, blacklist, mitochondrial contig name and MACS genome size.",
-                    "help_text": "Presets live in conf/igenomes.config and resolve to s3://ngi-igenomes paths. Each genome is paired with a blacklist whose contig naming matches its own FASTA (UCSC/NCBI builds use chr1, Ensembl builds use 1), so the two can never be mismatched by the preset. Any derived value can be overridden individually. Requires --read_length, because MACS genome size is stored per read length.",
-                    "fa_icon": "fas fa-book"
-                },
-                "read_length": {
-                    "type": "integer",
-                    "enum": [50, 75, 100, 150, 200],
-                    "description": "Read length, used to select the MACS/effective genome size for a --genome preset.",
-                    "fa_icon": "fas fa-ruler-horizontal"
-                },
                 "mito_name": {
                     "type": "string",
                     "description": "Mitochondrial contig name. Defaults to the genome preset, or chrM. Excluded from library-complexity metrics and reported separately in the FRiP table.",
                     "fa_icon": "fas fa-dna"
                 },
-                "igenomes_base": {
-                    "type": "string",
-                    "format": "directory-path",
-                    "default": "s3://ngi-igenomes/igenomes",
-                    "description": "Base path for AWS iGenomes.",
-                    "fa_icon": "fas fa-cloud-download-alt"
-                },
-                "igenomes_ignore": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Ignore the genome presets entirely, so no reference is ever resolved from S3. Use for offline or air-gapped runs, supplying --fasta and --blacklist yourself.",
-                    "fa_icon": "fas fa-ban"
-                },
-                "species": {
-                    "type": "string",
-                    "default": "mm10",
-                    "description": "Deprecated alias for --genome, kept for backwards compatibility.",
-                    "fa_icon": "fas fa-history",
-                    "hidden": true
-                },
                 "aligner": {
                     "type": "string",
                     "default": "bwa",
-                    "enum": ["bwa", "bwa-mem2"],
+                    "enum": [
+                        "bwa",
+                        "bwa-mem2"
+                    ],
                     "description": "Read aligner. bwa-mem2 is faster but needs substantially more RAM to build its index.",
                     "fa_icon": "fas fa-map-signs"
                 },
@@ -185,7 +162,10 @@
                 "macs_format": {
                     "type": "string",
                     "default": "BED",
-                    "enum": ["BED", "BAMPE"],
+                    "enum": [
+                        "BED",
+                        "BAMPE"
+                    ],
                     "description": "BED treats each read end as an independent Tn5 insertion; BAMPE calls on whole fragments.",
                     "fa_icon": "fas fa-file-code"
                 },
@@ -306,12 +286,26 @@
         }
     },
     "allOf": [
-        { "$ref": "#/$defs/input_output_options" },
-        { "$ref": "#/$defs/reference_genome_options" },
-        { "$ref": "#/$defs/trimming_options" },
-        { "$ref": "#/$defs/peak_calling_options" },
-        { "$ref": "#/$defs/downstream_analysis_options" },
-        { "$ref": "#/$defs/resource_options" },
-        { "$ref": "#/$defs/generic_options" }
+        {
+            "$ref": "#/$defs/input_output_options"
+        },
+        {
+            "$ref": "#/$defs/reference_genome_options"
+        },
+        {
+            "$ref": "#/$defs/trimming_options"
+        },
+        {
+            "$ref": "#/$defs/peak_calling_options"
+        },
+        {
+            "$ref": "#/$defs/downstream_analysis_options"
+        },
+        {
+            "$ref": "#/$defs/resource_options"
+        },
+        {
+            "$ref": "#/$defs/generic_options"
+        }
     ]
 }

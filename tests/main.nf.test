@@ -300,26 +300,43 @@ nextflow_pipeline {
         }
     }
 
-    test("a genome preset without --read_length is rejected") {
+    test("running without --fasta requires the genome sizes explicitly") {
 
         options "-stub-run"
 
         when {
             params {
-                outdir          = "$outputDir"
-                igenomes_ignore = false
-                genome          = "mm10"
-                read_length     = null
-                macs_gsize      = null
-                blacklist       = null
-                aligner_index   = "$projectDir/tests/data/bwa_index"
+                outdir                = "$outputDir"
+                macs_gsize            = null
+                effective_genome_size = null
+                blacklist             = "$projectDir/tests/data/blacklist.bed"
+                aligner_index         = "$projectDir/tests/data/bwa_index"
             }
         }
 
         then {
             assert workflow.failed
             assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
-                .contains("per-read-length table")
+                .contains("required when running without --fasta")
+        }
+    }
+
+    test("a missing blacklist is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir    = "$outputDir"
+                blacklist = null
+                fasta     = "$projectDir/tests/data/genome.fa"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("No blacklist given")
         }
     }
 }
