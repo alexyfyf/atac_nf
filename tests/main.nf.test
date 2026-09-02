@@ -18,7 +18,7 @@ nextflow_pipeline {
 
             // Per-sample processes for two samples, plus the single-instance reference and
             // cross-sample tasks.
-            assert workflow.trace.tasks().size() == 42
+            assert workflow.trace.tasks().size() == 43   // 42 + GENOME_STATS
 
             // Reporting
             assert path("$outputDir/MultiQC/multiqc_report.html").exists()
@@ -155,7 +155,7 @@ nextflow_pipeline {
         then {
             assert workflow.success
             // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 42.
-            assert workflow.trace.tasks().size() == 38
+            assert workflow.trace.tasks().size() == 39   // 38 + GENOME_STATS
             assert !path("$outputDir/trim").exists()
             assert !path("$outputDir/post_fastqc").exists()
             // ...and the untrimmed reads still make it all the way through.
@@ -181,7 +181,7 @@ nextflow_pipeline {
         }
     }
 
-    test("an unknown genome is an error, not a silent fallback to mm10") {
+    test("a removed genome-preset parameter is rejected with a migration message") {
 
         options "-stub-run"
 
@@ -194,7 +194,10 @@ nextflow_pipeline {
 
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("Unknown genome 'rn6'") }
+            // Nothing enforces nextflow_schema.json at runtime, so without the explicit guard
+            // in main.nf an old command line would be accepted and silently ignored.
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("These parameters have been removed")
         }
     }
 
@@ -263,9 +266,12 @@ nextflow_pipeline {
 
         when {
             params {
-                outdir        = "$outputDir"
-                fasta         = null
-                aligner_index = "$projectDir/tests/data/bwa_index"
+                outdir                = "$outputDir"
+                fasta                 = null
+                aligner_index         = "$projectDir/tests/data/bwa_index"
+                // No FASTA to derive from, so these are required.
+                macs_gsize            = 100000
+                effective_genome_size = 100000
             }
         }
 
@@ -307,6 +313,7 @@ nextflow_pipeline {
         when {
             params {
                 outdir                = "$outputDir"
+                fasta                 = null
                 macs_gsize            = null
                 effective_genome_size = null
                 blacklist             = "$projectDir/tests/data/blacklist.bed"
