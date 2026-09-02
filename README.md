@@ -135,10 +135,16 @@ Ensembl GRCm38 FASTA (contigs `1`, `2`, `MT`) at mm10's preset and `mito_name` b
 which matches nothing, so the mitochondrial exclusion quietly stops excluding and the PBC/NRF
 metrics come out wrong with no error.
 
-The one thing deriving cannot recover is read-length-aware mappable size — iGenomes tabulated it
-per read length, and it is not a property of the sequence. The gap is small: for mm10, non-N is
-~2.65e9 against 2.47e9 at 100 bp, about 7.6%, which moves MACS q-values negligibly. Pass
-`--macs_gsize` if you want the precise figure.
+The derived figure reproduces the published constants exactly. For a UCSC mm10 FASTA it is
+**2,652,783,500** — to the base, both MACS3's `mm` preset and the value DSL1 hardcoded for mm10;
+MACS3's `hs` of 2,913,022,398 likewise matches DSL1's hg38. It is also the method MACS3
+recommends, "taking away the simple repeats and Ns from the total genome". The iGenomes
+per-read-length table was the outlier: its 100 bp mm10 entry, 2,466,184,610, is ~7% below MACS3's
+own default.
+
+Read-length awareness is what deriving gives up, and MACS3 notes it matters little — the value
+"is used to estimate a genome-wide noise level which is usually the least significant one compared
+with the local biases". Pass `--macs_gsize` for a read-length-specific figure from deeptools.
 
 Contig-naming mismatches are the nastiest failure mode here, because they are silent: a
 `chr`-prefixed annotation against an Ensembl-named reference overlaps nothing, and bedtools

@@ -33,11 +33,23 @@ process GENOME_STATS {
     samtools faidx $fasta --fai-idx ${fasta.baseName}.fai 2>/dev/null \\
         || samtools faidx $fasta
 
-    # Effective genome size = non-N bases. This is the deeptools definition, and the same figure
-    # serves MACS: both estimate the mappable genome. It is NOT read-length aware -- iGenomes
-    # tabulated mappable size per read length, and that cannot be recovered from sequence alone.
-    # The gap is small: for mm10, non-N is ~2.65e9 against 2.47e9 at 100 bp, about 7.6%, which
-    # moves MACS q-values negligibly. --macs_gsize / --effective_genome_size override it.
+    # Effective genome size = non-N bases. This is the deeptools definition, and it is also what
+    # MACS3 itself recommends: "usually by taking away the simple repeats and Ns from the total
+    # genome, one can get an approximate number of effective genome size" (MACS3 callpeak docs).
+    #
+    # The same figure serves both consumers, and it reproduces the published constants exactly.
+    # For this mm10 FASTA it comes out at 2,652,783,500 -- to the base, both MACS3's own `mm`
+    # preset (documented as 2,652,783,500 for GRCm38) and the value the DSL1 pipeline hardcoded
+    # as effectiveGenomeSizes['mm10']. MACS3's `hs` preset, 2,913,022,398, likewise matches what
+    # DSL1 carried for hg38. The iGenomes per-read-length table that used to supply this was the
+    # outlier: its 100 bp entry for mm10, 2,466,184,610, sits ~7% below MACS3's own default.
+    #
+    # What deriving does give up is read-length awareness, which is not a property of the
+    # sequence. It matters little here: MACS3 notes that "a slight difference in the number won't
+    # cause a big difference of peak calls, because this number is used to estimate a genome-wide
+    # noise level which is usually the least significant one compared with the local biases".
+    # For read-length-specific precision see the deeptools table and pass --macs_gsize /
+    # --effective_genome_size.
     $reader | awk '!/^>/ { gsub(/[NnXx]/, ""); total += length(\$0) } END { print total+0 }' \\
         > effective_genome_size.txt
 

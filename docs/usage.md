@@ -72,9 +72,21 @@ FASTA (contigs `1`, `2`, `MT`) with mm10's `mito_name` of `chrM` matches nothing
 mitochondrial exclusion quietly stopped excluding and the PBC/NRF metrics came out wrong with no
 error.
 
-Read-length-aware mappable size is the one thing deriving cannot recover, since it is not a
-property of the sequence. The gap is small — for mm10, non-N is ~2.65e9 against 2.47e9 at 100 bp,
-about 7.6%, which moves MACS q-values negligibly. Pass `--macs_gsize` for the exact figure.
+The derived figure reproduces the published constants exactly. For a UCSC mm10 FASTA it comes out
+at **2,652,783,500** — to the base, both MACS3's own `mm` preset (documented as 2,652,783,500 for
+GRCm38) and the value the DSL1 pipeline hardcoded for mm10. MACS3's `hs`, 2,913,022,398, likewise
+matches what DSL1 carried for hg38. This is the method MACS3 recommends: "usually by taking away
+the simple repeats and Ns from the total genome, one can get an approximate number of effective
+genome size".
+
+The iGenomes per-read-length table that used to supply this was the outlier — its 100 bp mm10
+entry, 2,466,184,610, sits about 7% *below* MACS3's own default.
+
+What deriving gives up is read-length awareness, which is not a property of the sequence. MACS3
+notes it matters little: "a slight difference in the number won't cause a big difference of peak
+calls, because this number is used to estimate a genome-wide noise level which is usually the
+least significant one compared with the local biases". For read-length-specific precision, consult
+the deeptools table and pass `--macs_gsize`.
 
 With `--aligner_index` and no `--fasta` there is nothing to derive from, so `--macs_gsize` and
 `--effective_genome_size` become required.
