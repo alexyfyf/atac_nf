@@ -62,14 +62,17 @@ Include `condition` and `replicate` for **two conditions with at least two repli
 you want differential accessibility. With fewer, DESeq2 still produces normalised counts, PCA and
 a correlation heatmap, and logs why it skipped the comparison.
 
-**Reference.** Easiest is a genome preset, which fetches everything from AWS iGenomes and
-guarantees the blacklist and mitochondrial name match the reference's contig naming:
+**Reference.** You supply it: a FASTA, a blacklist, and optionally a GTF. The mitochondrial
+contig and the genome sizes are derived from the FASTA, so they always match it.
 
 ```bash
---genome mm10 --read_length 100        # or GRCm38 / hg38 / GRCh38 / GRCh37
+--fasta /ref/mm10.fa \
+--blacklist assets/blacklists/mm10-blacklist.v2.bed \
+--gtf /ref/gencode.vM25.annotation.gtf.gz
 ```
 
-If you bring your own reference, check its contig naming first, because a mismatch is silent:
+Check that the blacklist and GTF use the same contig naming as the FASTA, because a mismatch is
+silent:
 
 ```bash
 grep '^>' /ref/mm10.fa | head
@@ -106,13 +109,13 @@ samplesheet, paths, reference and parameters in about 30 seconds without running
 nextflow run . \
     --input samplesheet.csv \
     --fasta /ref/mm10.fa \
-    --genome mm10 \
-    --gtf /ref/gencode.vM25.annotation.gtf \
+    --blacklist assets/blacklists/mm10-blacklist.v2.bed \
+    --gtf /ref/gencode.vM25.annotation.gtf.gz \
     --outdir results_real \
     -stub-run
 ```
 
-Missing FASTQs, malformed columns, duplicate sample IDs, an unknown `--genome` and a bad
+Missing FASTQs, malformed columns, duplicate sample IDs, a missing `--blacklist` and a bad
 `--aligner` all fail here with a message naming the problem. Fix anything it reports before
 moving on.
 
@@ -122,8 +125,8 @@ moving on.
 nextflow run . -profile docker \
     --input samplesheet.csv \
     --fasta /ref/mm10.fa \
-    --genome mm10 \
-    --gtf /ref/gencode.vM25.annotation.gtf \
+    --blacklist assets/blacklists/mm10-blacklist.v2.bed \
+    --gtf /ref/gencode.vM25.annotation.gtf.gz \
     --outdir results_real \
     -resume
 ```
@@ -248,7 +251,7 @@ malformed version of this file was a bug found during the refactor.
 
 ```bash
 nextflow run . -profile docker --input samplesheet.csv --fasta /ref/mm10.fa \
-    --genome mm10 --outdir results_real -resume
+    --blacklist assets/blacklists/mm10-blacklist.v2.bed --outdir results_real -resume
 ```
 
 Every task should report `CACHED`. Anything re-running indicates non-deterministic staging.
@@ -272,7 +275,25 @@ wc -l results_old/macs2/*narrowPeak results_real/macs2/*narrowPeak
 paste results_old/FRiP/S.metric results_real/FRiP/S.metric
 ```
 
-What to expect: **alignment and filtering should agree closely** — same tools, same parameters.
+What to expect: **alignment and filtering agree exactly**, not merely closely. This has been
+measured — two mm10 ATAC samples, ~40M and ~31M read pairs, against a DSL1 run of `2c4faf6`:
+trimming survived the same read pairs to the read, and `.final.bam` and `_shifted_sorted.bam` were
+md5-identical record for record.
+
+Two conditions on that:
+
+* **Match the thread count.** `bwa mem` batches reads as `chunk_size * threads` and re-estimates
+  the insert-size distribution per batch, so `-t` shifts a small number of mate-rescue and pairing
+  calls — 2,466 of 50.8M reads differed at 12 threads, zero at 16. The aligner is pinned to 16 in
+  `conf/base.config` for this reason. Note that Nextflow's cache key excludes resource directives,
+  so changing `cpus` and using `-resume` silently reuses the old alignments; delete the aligner
+  work directories to force re-execution.
+* **Strip the read group.** The refactor adds `-R '@RG...'`, which picard needs to resolve a
+  library. Compare with `samtools view ... | sed 's/\tRG:Z:[^\t]*//' | md5sum`.
+
+Upgrading the toolchain is also safe: bwa 0.7.17 → 0.7.19 and picard 2.21.1 → 3.4.0 left columns
+1–11 md5-identical and flagstat unchanged; the newer stack only adds `RG:Z:` and `MQ:i:` tags.
+
 **Peaks will differ** because MACS3 replaced macs2. A modest shift in peak count and boundaries is
 expected; an order-of-magnitude difference is not, and is worth reporting.
 
