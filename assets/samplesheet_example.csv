@@ -1,0 +1,6 @@
+sample,fastq_1,fastq_2,replicate,condition
+WT_1,/path/to/WT_1_R1.fq.gz,/path/to/WT_1_R2.fq.gz,1,WT
+WT_2,/path/to/WT_2_R1.fq.gz,/path/to/WT_2_R2.fq.gz,2,WT
+KO_1,/path/to/KO_1_R1.fq.gz,/path/to/KO_1_R2.fq.gz,1,KO
+KO_2,/path/to/KO_2_R1.fq.gz,/path/to/KO_2_R2.fq.gz,2,KO
+SE_sample,/path/to/SE_sample_R1.fq.gz,,1,WT

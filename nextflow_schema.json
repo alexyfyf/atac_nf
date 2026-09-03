@@ -1,0 +1,311 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/alexyfyf/atac_nf/master/nextflow_schema.json",
+    "title": "atac_nf pipeline parameters",
+    "description": "ATAC-seq analysis Nextflow pipeline",
+    "type": "object",
+    "$defs": {
+        "input_output_options": {
+            "title": "Input/output options",
+            "type": "object",
+            "fa_icon": "fas fa-terminal",
+            "description": "Define where the pipeline should find input data and save output data.",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/csv",
+                    "pattern": "^\\S+\\.csv$",
+                    "schema": "assets/schema_input.json",
+                    "description": "Path to a comma-separated file describing the samples.",
+                    "help_text": "Requires the columns `sample` and `fastq_1`. `fastq_2` may be empty for single-end samples. Optional `replicate` and `condition` columns are carried through for downstream analysis.",
+                    "fa_icon": "fas fa-file-csv"
+                },
+                "reads": {
+                    "type": "string",
+                    "description": "Legacy input: a quoted glob matching FASTQ file pairs, e.g. 'data/*_R{1,2}.fq.gz'.",
+                    "help_text": "Retained for backwards compatibility with the DSL1 pipeline. Prefer --input, which also carries replicate and condition metadata.",
+                    "fa_icon": "fas fa-asterisk"
+                },
+                "single_end": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Treat --reads input as single-end. Ignored when --input is used, where it is decided per sample.",
+                    "fa_icon": "fas fa-align-left"
+                },
+                "outdir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "default": "results",
+                    "description": "Output directory for the results.",
+                    "fa_icon": "fas fa-folder-open"
+                },
+                "publish_dir_mode": {
+                    "type": "string",
+                    "default": "copy",
+                    "enum": [
+                        "symlink",
+                        "rellink",
+                        "link",
+                        "copy",
+                        "copyNoFollow",
+                        "move"
+                    ],
+                    "description": "Method used to save pipeline results to the output directory.",
+                    "fa_icon": "fas fa-copy",
+                    "hidden": true
+                },
+                "save_trimmed": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish the trimmed FASTQ files. They are large and rarely needed.",
+                    "fa_icon": "fas fa-save"
+                },
+                "save_raw_bam": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish the pre-filtering BAM files.",
+                    "fa_icon": "fas fa-save"
+                }
+            }
+        },
+        "reference_genome_options": {
+            "title": "Reference genome options",
+            "type": "object",
+            "fa_icon": "fas fa-dna",
+            "description": "Reference genome and derived annotation.",
+            "properties": {
+                "fasta": {
+                    "type": "string",
+                    "format": "file-path",
+                    "mimetype": "text/plain",
+                    "pattern": "^\\S+\\.(fa|fasta|fna)(\\.gz)?$",
+                    "description": "Path to the reference genome FASTA. Required unless --aligner_index or --genome supplies one.",
+                    "fa_icon": "fas fa-file"
+                },
+                "mito_name": {
+                    "type": "string",
+                    "description": "Mitochondrial contig name. Defaults to the genome preset, or chrM. Excluded from library-complexity metrics and reported separately in the FRiP table.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "aligner": {
+                    "type": "string",
+                    "default": "bwa",
+                    "enum": [
+                        "bwa",
+                        "bwa-mem2"
+                    ],
+                    "description": "Read aligner. bwa-mem2 is faster but needs substantially more RAM to build its index.",
+                    "fa_icon": "fas fa-map-signs"
+                },
+                "aligner_index": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Directory containing a pre-built index for the selected aligner. Skips indexing, and makes --fasta optional. Must match --aligner: bwa and bwa-mem2 index formats are not interchangeable.",
+                    "fa_icon": "fas fa-bezier-curve"
+                },
+                "blacklist": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "BED file of blacklisted regions. Overrides the genome preset. Must use the same contig naming as the reference (UCSC chr1 vs Ensembl 1) or filtering silently does nothing; the pipeline now checks this at runtime.",
+                    "fa_icon": "fas fa-ban"
+                },
+                "macs_gsize": {
+                    "type": "string",
+                    "description": "MACS effective genome size ('mm', 'hs', or a number). Overrides the genome preset.",
+                    "fa_icon": "fas fa-arrows-alt-h"
+                },
+                "effective_genome_size": {
+                    "type": "string",
+                    "description": "Effective genome size used for RPGC normalisation of bigwigs. Overrides the genome preset.",
+                    "fa_icon": "fas fa-arrows-alt-h"
+                }
+            }
+        },
+        "trimming_options": {
+            "title": "Trimming options",
+            "type": "object",
+            "fa_icon": "fas fa-cut",
+            "properties": {
+                "trim": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Run trimmomatic. When false the reads go straight to alignment.",
+                    "fa_icon": "fas fa-cut"
+                },
+                "adapter": {
+                    "type": "string",
+                    "default": "atac",
+                    "description": "Adapter set: 'atac'/'nextera', 'truseq', or a path to an adapter FASTA.",
+                    "fa_icon": "fas fa-file"
+                }
+            }
+        },
+        "peak_calling_options": {
+            "title": "Peak calling options",
+            "type": "object",
+            "fa_icon": "fas fa-mountain",
+            "properties": {
+                "macs_qvalue": {
+                    "type": "number",
+                    "default": 0.01,
+                    "description": "MACS q-value (FDR) cutoff for narrow and broad peak calling.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "macs2qval": {
+                    "type": "number",
+                    "description": "Deprecated alias for --macs_qvalue.",
+                    "fa_icon": "fas fa-history",
+                    "hidden": true
+                },
+                "macs_format": {
+                    "type": "string",
+                    "default": "BED",
+                    "enum": [
+                        "BED",
+                        "BAMPE"
+                    ],
+                    "description": "BED treats each read end as an independent Tn5 insertion; BAMPE calls on whole fragments.",
+                    "fa_icon": "fas fa-file-code"
+                },
+                "hmmratac": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Additionally call peaks with MACS3 hmmratac.",
+                    "fa_icon": "fas fa-mountain"
+                }
+            }
+        },
+        "downstream_analysis_options": {
+            "title": "Downstream analysis options",
+            "type": "object",
+            "fa_icon": "fas fa-chart-line",
+            "description": "Cross-sample analysis over the consensus peak set.",
+            "properties": {
+                "gtf": {
+                    "type": "string",
+                    "format": "file-path",
+                    "pattern": "^\\S+\\.gtf(\\.gz)?$",
+                    "description": "GTF annotation. Enables TSS enrichment and nearest-gene peak annotation.",
+                    "fa_icon": "fas fa-file-alt"
+                },
+                "tss_window": {
+                    "type": "integer",
+                    "default": 2000,
+                    "description": "Base pairs either side of the TSS in the enrichment profile.",
+                    "fa_icon": "fas fa-arrows-alt-h"
+                },
+                "tss_bin_size": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Bin size for the TSS enrichment profile.",
+                    "fa_icon": "fas fa-th"
+                },
+                "deseq2_fdr": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "FDR threshold reported for differential accessibility.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "skip_consensus": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip consensus peaks, the counts matrix, DESeq2 and peak annotation.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_deseq2": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip the DESeq2 step only.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_tss_enrichment": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip the TSS enrichment profile only.",
+                    "fa_icon": "fas fa-forward"
+                }
+            }
+        },
+        "resource_options": {
+            "title": "Resource options",
+            "type": "object",
+            "fa_icon": "fas fa-microchip",
+            "description": "Ceilings applied to every process request.",
+            "properties": {
+                "max_cpus": {
+                    "type": "integer",
+                    "description": "Maximum CPUs any single task may request. Defaults to the detected core count.",
+                    "fa_icon": "fas fa-microchip"
+                },
+                "max_memory": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?\\s*\\.?\\s*(K|M|G|T)?B$",
+                    "default": "128.GB",
+                    "description": "Maximum memory any single task may request.",
+                    "fa_icon": "fas fa-memory"
+                },
+                "max_time": {
+                    "type": "string",
+                    "pattern": "^(\\d+\\.?\\s*(s|m|h|d|day)\\s*)+$",
+                    "default": "240.h",
+                    "description": "Maximum time any single task may request.",
+                    "fa_icon": "far fa-clock"
+                },
+                "slurm_account": {
+                    "type": "string",
+                    "description": "SLURM account, passed as --account (used by -profile slurm).",
+                    "fa_icon": "fas fa-users"
+                },
+                "slurm_qos": {
+                    "type": "string",
+                    "description": "SLURM QOS, passed as --qos (used by -profile slurm).",
+                    "fa_icon": "fas fa-users"
+                },
+                "slurm_queue": {
+                    "type": "string",
+                    "description": "SLURM partition (used by -profile slurm).",
+                    "fa_icon": "fas fa-users"
+                }
+            }
+        },
+        "generic_options": {
+            "title": "Generic options",
+            "type": "object",
+            "fa_icon": "fas fa-file-import",
+            "properties": {
+                "shift": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Perl script used for Tn5 offset correction.",
+                    "fa_icon": "fas fa-code",
+                    "hidden": true
+                }
+            }
+        }
+    },
+    "allOf": [
+        {
+            "$ref": "#/$defs/input_output_options"
+        },
+        {
+            "$ref": "#/$defs/reference_genome_options"
+        },
+        {
+            "$ref": "#/$defs/trimming_options"
+        },
+        {
+            "$ref": "#/$defs/peak_calling_options"
+        },
+        {
+            "$ref": "#/$defs/downstream_analysis_options"
+        },
+        {
+            "$ref": "#/$defs/resource_options"
+        },
+        {
+            "$ref": "#/$defs/generic_options"
+        }
+    ]
+}

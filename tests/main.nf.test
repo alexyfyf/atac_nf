@@ -1,0 +1,349 @@
+nextflow_pipeline {
+
+    name "atac_nf pipeline"
+    script "../main.nf"
+
+    test("paired-end run produces every expected output") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            assert workflow.success
+
+            // Per-sample processes for two samples, plus the single-instance reference and
+            // cross-sample tasks.
+            assert workflow.trace.tasks().size() == 43   // 42 + GENOME_STATS
+
+            // Reporting
+            assert path("$outputDir/MultiQC/multiqc_report.html").exists()
+            assert path("$outputDir/pipeline_info/software_versions.yml").exists()
+
+            // Raw and trimmed FastQC are kept apart by ext.prefix, and both reach the report.
+            assert path("$outputDir/pre_fastqc/sample1_raw_fastqc.html").exists()
+            assert path("$outputDir/post_fastqc/sample1_trimmed_fastqc.html").exists()
+            assert path("$outputDir/pre_fastqc/zips/sample1_raw_fastqc.zip").exists()
+
+            // Trim logs are published even though the FASTQs are not (--save_trimmed false)
+            assert path("$outputDir/trim/sample1_trim.log").exists()
+            assert !path("$outputDir/trim/sample1_1P.fastq.gz").exists()
+
+            // Alignment QC keeps the raw-vs-final distinction
+            assert path("$outputDir/FilteredBamFiles/sample1.flagstat").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1.final.flagstat").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1_dups.txt").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1_pbc.txt").exists()
+
+            assert path("$outputDir/ShiftedBamFiles/sample1_shifted_sorted.bam").exists()
+
+            // Narrow and broad peaks are separate MACS invocations
+            assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
+            assert path("$outputDir/macs2/sample1_broad_peaks.broadPeak").exists()
+
+            assert path("$outputDir/FRiP/sample1.metric").exists()
+            assert path("$outputDir/bigwig/sample1.bw").exists()
+
+            // Cross-sample analysis
+            assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks.saf").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks.counts.txt").exists()
+            assert path("$outputDir/differential/deseq2.normalised_counts.tsv").exists()
+
+            // GTF-driven steps (the test profile supplies one)
+            assert path("$outputDir/tss_enrichment/tss_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_profile_mqc.tsv").exists()
+            assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+
+            // hmmratac is off by default
+            assert !path("$outputDir/hmmratac").exists()
+        }
+    }
+
+    test("without a GTF, TSS enrichment and annotation are skipped") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                gtf    = null
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/tss_enrichment").exists()
+            assert !path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // The consensus peak set does not depend on the GTF
+            assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
+        }
+    }
+
+    test("--skip_consensus drops the whole cross-sample stage") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir         = "$outputDir"
+                skip_consensus = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/consensus_peaks").exists()
+            assert !path("$outputDir/differential").exists()
+            // Per-sample results are unaffected
+            assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
+        }
+    }
+
+    test("single-end samples are handled per sample") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_single_end.csv"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/FilteredBamFiles/se1.final.bam").exists()
+            // No insert-size metrics for single-end libraries
+            assert !path("$outputDir/FilteredBamFiles/se1.insert_size_metrics").exists()
+        }
+    }
+
+    test("--hmmratac adds MACS3 hmmratac peaks") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir   = "$outputDir"
+                hmmratac = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/hmmratac").exists()
+        }
+    }
+
+    test("--trim false skips trimming entirely") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                trim   = false
+            }
+        }
+
+        then {
+            assert workflow.success
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 42.
+            assert workflow.trace.tasks().size() == 39   // 38 + GENOME_STATS
+            assert !path("$outputDir/trim").exists()
+            assert !path("$outputDir/post_fastqc").exists()
+            // ...and the untrimmed reads still make it all the way through.
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("the legacy --reads glob still works") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = null
+                reads  = "$projectDir/tests/data/sample*_R{1,2}.fq.gz"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("a removed genome-preset parameter is rejected with a migration message") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                genome = "rn6"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            // Nothing enforces nextflow_schema.json at runtime, so without the explicit guard
+            // in main.nf an old command line would be accepted and silently ignored.
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("These parameters have been removed")
+        }
+    }
+
+    test("a duplicate sample ID is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_duplicate.csv"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.join('\n').contains("Duplicate sample ID") ||
+                   (workflow.errorReport ?: '').contains("Duplicate sample ID")
+        }
+    }
+
+    test("an unsupported aligner is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir  = "$outputDir"
+                aligner = "bowtie2"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("--aligner must be") }
+        }
+    }
+
+    test("--aligner bwa-mem2 uses the bwa-mem2 modules") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir  = "$outputDir"
+                aligner = "bwa-mem2"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // software_versions.yml records fully-qualified process names, which is the cleanest
+            // way to assert which branch of the aligner choice actually ran.
+            def versions = path("$outputDir/pipeline_info/software_versions.yml").text
+            assert versions.contains("BWAMEM2_INDEX")
+            assert versions.contains("BWAMEM2_MEM")
+            assert !versions.contains("BWA_INDEX")
+            assert !versions.contains("BWA_MEM")
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+        }
+    }
+
+    test("a pre-built index runs without --fasta and skips indexing") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir                = "$outputDir"
+                fasta                 = null
+                aligner_index         = "$projectDir/tests/data/bwa_index"
+                // No FASTA to derive from, so these are required.
+                macs_gsize            = 100000
+                effective_genome_size = 100000
+            }
+        }
+
+        then {
+            assert workflow.success
+            def versions = path("$outputDir/pipeline_info/software_versions.yml").text
+            assert versions.contains("BWA_MEM")
+            // Indexing was skipped entirely
+            assert !versions.contains("BWA_INDEX")
+            assert path("$outputDir/FilteredBamFiles/sample1.final.bam").exists()
+            // picard still runs, just without the reference
+            assert path("$outputDir/FilteredBamFiles/sample1.alignment_summary_metrics").exists()
+        }
+    }
+
+    test("no reference at all is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir        = "$outputDir"
+                fasta         = null
+                aligner_index = null
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert workflow.stdout.join('\n').contains("No reference given") ||
+                   (workflow.errorReport ?: '').contains("No reference given")
+        }
+    }
+
+    test("running without --fasta requires the genome sizes explicitly") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir                = "$outputDir"
+                fasta                 = null
+                macs_gsize            = null
+                effective_genome_size = null
+                blacklist             = "$projectDir/tests/data/blacklist.bed"
+                aligner_index         = "$projectDir/tests/data/bwa_index"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("required when running without --fasta")
+        }
+    }
+
+    test("a missing blacklist is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir    = "$outputDir"
+                blacklist = null
+                fasta     = "$projectDir/tests/data/genome.fa"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("No blacklist given")
+        }
+    }
+}

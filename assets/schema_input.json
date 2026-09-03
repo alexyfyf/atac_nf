@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/alexyfyf/atac_nf/master/assets/schema_input.json",
+    "title": "atac_nf samplesheet",
+    "description": "Schema for the file provided with --input",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "sample": {
+                "type": "string",
+                "pattern": "^\\S+$",
+                "errorMessage": "Sample name must be provided and cannot contain spaces",
+                "meta": ["id"]
+            },
+            "fastq_1": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^\\S+\\.f(ast)?q(\\.gz)?$",
+                "errorMessage": "FASTQ for read 1 must be provided, cannot contain spaces and must have extension '.fq', '.fastq', '.fq.gz' or '.fastq.gz'"
+            },
+            "fastq_2": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^\\S+\\.f(ast)?q(\\.gz)?$",
+                "errorMessage": "FASTQ for read 2 cannot contain spaces and must have extension '.fq', '.fastq', '.fq.gz' or '.fastq.gz'. Leave empty for single-end data."
+            },
+            "replicate": {
+                "type": "string",
+                "meta": ["replicate"],
+                "errorMessage": "Replicate identifier, e.g. 1 or 2"
+            },
+            "condition": {
+                "type": "string",
+                "pattern": "^\\S+$",
+                "meta": ["condition"],
+                "errorMessage": "Condition/group name cannot contain spaces"
+            }
+        },
+        "required": ["sample", "fastq_1"]
+    }
+}

@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  NXF_ANSI_LOG: false
+
+jobs:
+  config:
+    name: Config parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Resolve every profile
+        run: |
+          for p in test docker singularity apptainer conda mamba wave slurm debug; do
+            echo "::group::profile $p"
+            nextflow config -profile "$p" > /dev/null
+            echo "::endgroup::"
+          done
+      - name: Validate JSON schemas
+        run: |
+          python -c "import json; json.load(open('nextflow_schema.json'))"
+          python -c "import json; json.load(open('assets/schema_input.json'))"
+      - name: Check every container URI names its registry
+        # A bare `biocontainers/...` resolves to Docker Hub, where the mulled images do not
+        # exist -- only quay.io hosts them. That fails at pull time, so it surfaces solely in
+        # the container job, and only once execution reaches that process.
+        run: |
+          if bad=$(grep -rn "'biocontainers/" modules/ 2>/dev/null); then
+            echo "Container URIs missing a registry prefix (mulled images live on quay.io):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All container URIs name their registry."
+      - name: Check environment.yml matches the module conda specs
+        # environment.yml duplicates the per-process conda directives, so it rots as soon as a
+        # module gains a tool. Versions are not compared -- three packages intentionally differ.
+        run: python3 tests/check_environment_yml.py
+
+  stub:
+    name: Stub run (Nextflow ${{ matrix.NXF_VER }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        NXF_VER: ["24.04.0", "latest-stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "${{ matrix.NXF_VER }}"
+      - name: Run the pipeline in stub mode
+        run: nextflow run . -profile test --outdir ./results -stub-run
+      - name: Confirm -resume caches everything
+        run: |
+          nextflow run . -profile test --outdir ./results -stub-run -resume
+          # Assert against the trace file rather than the console: with NXF_ANSI_LOG=false the
+          # progress lines are not a stable thing to grep, and a regex that silently stops
+          # matching turns this into a check that can never fail.
+          trace=results/pipeline_info/execution_trace.txt
+          test -s "$trace" || { echo "no trace file at $trace"; exit 1; }
+          uncached=$(awk -F'\t' '
+            NR==1 {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "status") status_col = i
+                    if ($i == "name")   name_col   = i
+                }
+                if (!status_col) { print "ERROR: no status column in trace file" > "/dev/stderr"; exit 2 }
+                next
+            }
+            $status_col != "CACHED" { printf "  %s  %s\n", $status_col, $name_col }
+          ' "$trace") || exit 1
+          if [ -n "$uncached" ]; then
+            echo "Tasks not cached on resume:"
+            echo "$uncached"
+            exit 1
+          fi
+          echo "All tasks cached on resume."
+
+  nf-test:
+    name: nf-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Install nf-test
+        # Pinned, and fetched straight from the release asset rather than through
+        # get.nf-test.com: that installer resolves "latest" via the GitHub API, and
+        # unauthenticated API calls from shared runners get rate-limited, which fails the job
+        # with a bare `curl: (22) ... error: 403` before a single test runs.
+        env:
+          NFT_VER: "0.9.2"
+        run: |
+          curl -sSfL -o nf-test.tar.gz \
+              "https://github.com/askimed/nf-test/releases/download/v${NFT_VER}/nf-test-${NFT_VER}.tar.gz"
+          tar -xzf nf-test.tar.gz
+          # The launcher looks for nf-test.jar beside itself, so both have to move together.
+          sudo mv nf-test nf-test.jar /usr/local/bin/
+          nf-test version
+      - name: Run the test suite
+        run: nf-test test --verbose
+
+  full:
+    name: Full run with containers
+    runs-on: ubuntu-latest
+    # The only job that actually pulls images and runs the tools, so it is the only place a
+    # missing binary inside a container gets caught. The Tn5 shift step is why that matters:
+    # its image needs perl, samtools *and* ps, and a missing `ps` fails the task before the
+    # script runs. The ShiftedBamFiles assertion below is the regression guard.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.04.0"
+      - name: Run the pipeline for real
+        run: nextflow run . -profile test,docker --outdir ./results
+      - name: Dump the failed tasks
+        if: failure()
+        # Nextflow prints the work directory of the first failure and truncates its logs. Dump
+        # every task that actually exited non-zero, in full, so a red run diagnoses itself
+        # instead of needing another round trip.
+        run: |
+          shopt -s nullglob
+          for exitcode in work/*/*/.exitcode; do
+              d=$(dirname "$exitcode")
+              status=$(cat "$exitcode")
+              [ "$status" = "0" ] && continue
+              echo "::group::$d (exit $status)"
+              for f in .command.sh .command.err .command.out .command.log; do
+                  echo "--- $f ---"
+                  cat "$d/$f" 2>/dev/null || echo "(absent)"
+              done
+              echo "--- staged files ---"
+              ls -la "$d"
+              echo "::endgroup::"
+          done
+      - name: Check the expected outputs exist and are non-empty
+        run: |
+          set -euo pipefail
+          for f in \
+            MultiQC/multiqc_report.html \
+            pipeline_info/software_versions.yml \
+            FilteredBamFiles/sample1.final.bam \
+            FilteredBamFiles/sample1_pbc.txt \
+            ShiftedBamFiles/sample1_shifted_sorted.bam \
+            macs2/sample1_narrow_peaks.narrowPeak \
+            FRiP/sample1.metric \
+            bigwig/sample1.bw \
+            consensus_peaks/consensus_peaks.bed \
+            consensus_peaks/consensus_peaks.counts.txt \
+            consensus_peaks/consensus_peaks_annotated.tsv \
+            differential/deseq2.normalised_counts.tsv \
+            tss_enrichment/tss_profile.pdf
+          do
+            test -s "results/$f" || { echo "missing or empty: results/$f"; exit 1; }
+          done
+          echo "FRiP metrics:"; cat results/FRiP/*.metric
+          echo "Library complexity:"; cat results/FilteredBamFiles/*_pbc.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results
+          path: |
+            results/MultiQC
+            results/pipeline_info
+          retention-days: 7
