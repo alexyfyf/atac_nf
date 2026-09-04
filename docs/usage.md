@@ -167,6 +167,70 @@ one to the other is detected and reported rather than failing obscurely inside t
 `--aligner bwa-mem2` roughly halves alignment time but its index build needs about 28× the
 genome size in RAM (~80 GB for human). Build it once and reuse it via `--aligner_index`.
 
+## Contigs excluded by the shift step
+
+The Tn5 shift step drops alignments on contigs matching `--exclude_contigs`, a perl regex, before
+peak calling, coverage, FRiP and the counts matrix ever see them.
+
+```bash
+--exclude_contigs '_random$|^chrUn'                 # default: UCSC unplaced/random scaffolds
+--exclude_contigs '_random$|^chrUn|^chrM'           # ...and mitochondria
+--exclude_contigs '^GL|^JH|^KI|^MT$'                # Ensembl naming
+--exclude_contigs none                              # keep every contig
+```
+
+**The default only matches UCSC naming.** An Ensembl reference calls its unplaced scaffolds
+`GL456210.1`, which the default pattern does not match, so nothing is excluded there. Two runs of
+the same data under the two naming conventions therefore do not produce comparable peak sets
+unless you set the pattern to suit. If you want no filtering at all, say so explicitly with
+`none` — that is a supported, tested configuration.
+
+Every sample gets a `ShiftedBamFiles/<sample>.shift_summary.txt` recording the pattern in force
+and how many reads it removed from which contigs, and the pattern is printed in the run header.
+Before this was a parameter the filter was hard-coded in the shift script and removed reads with
+no record anywhere.
+
+## Cross-sample QC summary
+
+After the per-sample QC, one figure and one table pull everything together: library complexity
+(NRF/PBC1/PBC2), signal distribution (FRiP, mitochondrial and blacklist fractions) and the number
+of peaks called, one bar per sample and coloured by condition, with the ENCODE guideline values
+drawn as dashed lines. It runs by default; `--skip_qc_summary` turns it off. See
+[output.md](output.md#qc_summary).
+
+## UCSC track hub
+
+`--trackhub` assembles the per-sample bigWigs and peaks into a UCSC track hub, so a whole
+experiment loads into the browser from one URL:
+
+```bash
+nextflow run . -profile singularity \
+    --input samplesheet.csv --fasta /ref/mm10.fa --blacklist assets/blacklists/mm10.bed \
+    --trackhub --trackhub_genome mm10 --trackhub_email you@example.org \
+    --trackhub_name Bcell_ATACseq --trackhub_url https://example.org/hubs/bcell
+```
+
+| Parameter | Required | Purpose |
+|---|---|---|
+| `--trackhub` | — | Turns the step on |
+| `--trackhub_genome` | yes | UCSC assembly name (`mm10`, `hg38`, …) |
+| `--trackhub_email` | yes | Contact address; UCSC will not accept a hub without one |
+| `--trackhub_name` | no | Hub name, default `atac_nf`; spaces become underscores and anything but letters, digits, `-`, `.` and `_` is stripped |
+| `--trackhub_url` | no | Base URL the hub will be served from, only used to print the hub URL at the end of the run |
+
+`--fasta` is also required: the chromosome sizes that the narrowPeak → bigBed conversion needs
+come from its index.
+
+The assembly has to be one UCSC hosts. A genome it does not carry would need an *assembly* hub
+(the sequence in twoBit form alongside the tracks), which this pipeline does not build.
+
+The hub is written to `<outdir>/trackhub/` as real files; copy that directory to a web server and
+give UCSC the URL of `<name>.hub.txt`. Nothing is uploaded by the pipeline.
+
+Under the hood it is [the `trackhub` package](https://daler.github.io/trackhub/) driven by
+`bin/make_trackhub.py`, which builds one composite track per condition — samples of a condition
+share a colour and a y-axis, with their peaks as a second view underneath.
+
 ## Profiles
 
 Combine one execution profile with one packaging profile:

@@ -74,7 +74,7 @@ single-end data).
 | 2C | Duplicate marking | picard MarkDuplicates |
 | 2C | Alignment and insert-size metrics | picard CollectMultipleMetrics |
 | 2C | Library complexity (NRF, PBC1, PBC2) | samtools + bedtools |
-| 2D | Tn5 offset correction (+4/−5) | bundled perl script |
+| 2D | Tn5 offset correction (+4/−5), and contig exclusion | bundled perl script |
 | 3A | Narrow and broad peak calling | MACS3 |
 | 3B | Semi-supervised peak calling (optional) | MACS3 `hmmratac` |
 | 4A | Signal distribution (FRiP, blacklist, chrM) | bedtools + samtools |
@@ -84,7 +84,9 @@ single-end data).
 | 6C | Sample QC (PCA, correlation) and differential accessibility | DESeq2 |
 | 6D | TSS enrichment profile *(needs `--gtf`)* | deeptools |
 | 6E | Nearest-gene peak annotation *(needs `--gtf`)* | bedtools `closest` |
+| 6F | Cross-sample QC summary (figure + table) | R / ggplot2 |
 | 7A | Aggregate report | MultiQC |
+| 7B | UCSC track hub *(optional)* | `bedToBigBed` + [`trackhub`](https://daler.github.io/trackhub/) |
 
 ## Key parameters
 
@@ -105,9 +107,12 @@ single-end data).
 | `--macs_gsize` | derived | MACS genome size; derived from the FASTA when unset |
 | `--effective_genome_size` | derived | For bamCoverage RPGC; derived from the FASTA when unset |
 | `--gtf` | — | GTF annotation; enables TSS enrichment and peak annotation |
+| `--exclude_contigs` | `_random$\|^chrUn` | Regex of contigs the shift step drops (UCSC-shaped by default; `none` keeps all) |
 | `--skip_consensus` | `false` | Skip consensus peaks, counts matrix and DESeq2 |
 | `--skip_deseq2` | `false` | Skip DESeq2 only |
 | `--skip_tss_enrichment` | `false` | Skip the TSS profile only |
+| `--skip_qc_summary` | `false` | Skip the cross-sample QC summary figure and table |
+| `--trackhub` | `false` | Build a UCSC track hub; needs `--trackhub_genome` and `--trackhub_email` |
 | `--outdir` | `results` | Output directory |
 
 The full list, with types and help text, is in [`nextflow_schema.json`](nextflow_schema.json).
@@ -173,6 +178,14 @@ nearest gene and distance to that gene's TSS.
 Still not implemented: motif enrichment (HOMER/FIMO) and footprinting (HINT-ATAC).
 [nf-core/atacseq](https://nf-co.re/atacseq) covers those well, and this pipeline's shifted BAMs
 and consensus peaks feed straight into them.
+
+## Track hub
+
+`--trackhub --trackhub_genome mm10 --trackhub_email you@example.org` assembles the per-sample
+bigWigs and peaks into a UCSC track hub under `results/trackhub/`: one composite track per
+condition, samples coloured and y-scaled together, peaks in a second view underneath. Copy the
+directory to a web server and give UCSC the URL of `<name>.hub.txt`. Details in
+[docs/usage.md](docs/usage.md#ucsc-track-hub).
 
 ## Software versions
 

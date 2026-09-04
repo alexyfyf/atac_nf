@@ -17,6 +17,7 @@ include { ALIGN_READS           } from './subworkflows/local/align_reads'
 include { BAM_FILTER_QC         } from './subworkflows/local/bam_filter_qc'
 include { PEAK_CALLING          } from './subworkflows/local/peak_calling'
 include { DOWNSTREAM_ANALYSIS   } from './subworkflows/local/downstream_analysis'
+include { TRACK_HUB             } from './subworkflows/local/track_hub'
 
 include { FASTQC as FASTQC_RAW  } from './modules/local/fastqc'
 include { FASTQC as FASTQC_TRIM } from './modules/local/fastqc'
@@ -24,6 +25,7 @@ include { TRIMMOMATIC           } from './modules/local/trimmomatic'
 include { ATAC_SHIFT_BAM        } from './modules/local/atac_shift_bam'
 include { FRIP_SCORE            } from './modules/local/frip_score'
 include { DEEPTOOLS_BAMCOVERAGE } from './modules/local/deeptools_bamcoverage'
+include { QC_SUMMARY            } from './modules/local/qc_summary'
 include { MULTIQC               } from './modules/local/multiqc'
 
 /*
@@ -77,6 +79,17 @@ workflow ATACSEQ {
         error("No blacklist given. Pass --blacklist <bed>.\n" +
               "ENCODE blacklists for common genomes are bundled: see assets/blacklists/.")
     }
+    // The shift step drops alignments on contigs matching this pattern. Normalised here so that
+    // --exclude_contigs '', 'none' and 'null' all mean the same thing: keep everything.
+    def exclude_contigs = params.exclude_contigs?.toString()?.trim() ?: ''
+    if (exclude_contigs.toLowerCase() in ['none', 'null', 'false']) {
+        exclude_contigs = ''
+    }
+    // The pattern is passed to perl inside single quotes, so a single quote in it would break
+    // out of the quoting rather than filter anything.
+    if (exclude_contigs.contains("'")) {
+        error("--exclude_contigs may not contain a single quote: ${exclude_contigs}")
+    }
     if (!(params.aligner in ['bwa', 'bwa-mem2'])) {
         error("--aligner must be 'bwa' or 'bwa-mem2', got '${params.aligner}'.")
     }
@@ -100,6 +113,25 @@ workflow ATACSEQ {
               "Effective/MACS genome size and the mitochondrial contig are derived from the FASTA.\n" +
               "See docs/usage.md.")
     }
+    // A hub is a set of URLs pointing at a genome UCSC already hosts, so the assembly name has
+    // to be UCSC's own, and UCSC will not accept a hub without a contact address. Both are
+    // checked here rather than at the very end of a long run.
+    if (params.trackhub) {
+        if (!params.trackhub_genome?.toString()?.trim()) {
+            error("--trackhub needs --trackhub_genome <UCSC assembly>, e.g. hg38 or mm10.\n" +
+                  "It must be an assembly UCSC hosts; anything else would need an assembly hub, " +
+                  "which this pipeline does not build.")
+        }
+        if (!params.trackhub_email?.toString()?.trim()) {
+            error("--trackhub needs --trackhub_email <address>: UCSC requires a contact address " +
+                  "in hub.txt.")
+        }
+        if (!fasta_path) {
+            error("--trackhub needs --fasta: the chromosome sizes the bigBed conversion requires " +
+                  "come from the reference index.")
+        }
+    }
+
     // Without a FASTA there is nothing to derive the genome constants from, so they are required.
     if (!fasta_path) {
         ['macs_gsize', 'effective_genome_size'].each { p ->
@@ -123,8 +155,10 @@ workflow ATACSEQ {
     adapter         : ${adapter_path}
     blacklist       : ${blacklist_path}
     shiftscript     : ${params.shift}
+    exclude_contigs : ${exclude_contigs ?: '(none: every contig is kept)'}
     gtf             : ${gtf_path ?: '(none: skipping TSS enrichment and peak annotation)'}
     HMMRATAC        : ${params.hmmratac}
+    trackhub        : ${params.trackhub ? "${params.trackhub_genome} (${params.trackhub_name})" : 'off'}
     MACS_qvalue     : ${params.macs2qval ?: params.macs_qvalue}
     MACS_gsize      : ${params.macs_gsize ?: '(derived: non-N bases in the FASTA)'}
     GenomeSize      : ${params.effective_genome_size ?: '(derived: non-N bases in the FASTA)'}
@@ -223,9 +257,10 @@ workflow ATACSEQ {
         .mix(BAM_FILTER_QC.out.idxstats.collect       { _meta, f -> f })
         .mix(BAM_FILTER_QC.out.dup_metrics.collect    { _meta, f -> f })
         .mix(BAM_FILTER_QC.out.picard_metrics.collect { _meta, f -> f })
+        .mix(BAM_FILTER_QC.out.insert_final.collect    { _meta, f -> f })
         .mix(BAM_FILTER_QC.out.pbc_mqc.collect        { _meta, f -> f })
 
-    ATAC_SHIFT_BAM(BAM_FILTER_QC.out.bam, ch_shift)
+    ATAC_SHIFT_BAM(BAM_FILTER_QC.out.bam, ch_shift, exclude_contigs)
     ch_versions   = ch_versions.mix(ATAC_SHIFT_BAM.out.versions.first())
     ch_shifted_bam = ATAC_SHIFT_BAM.out.bam
 
@@ -239,7 +274,13 @@ workflow ATACSEQ {
     //
     // PART 4: signal distribution
     //
-    FRIP_SCORE(ch_shifted_bam.join(PEAK_CALLING.out.narrow_peak), ch_blacklist, ch_mito_name)
+    // The raw-BAM idxstats rides along so FRIP_SCORE can report the library's mitochondrial
+    // burden as well as what survives filtering; see the module header.
+    FRIP_SCORE(
+        ch_shifted_bam.join(PEAK_CALLING.out.narrow_peak).join(BAM_FILTER_QC.out.idxstats),
+        ch_blacklist,
+        ch_mito_name
+    )
     ch_versions      = ch_versions.mix(FRIP_SCORE.out.versions.first())
     ch_multiqc_files = ch_multiqc_files.mix(FRIP_SCORE.out.mqc.collect { _meta, f -> f })
 
@@ -252,20 +293,68 @@ workflow ATACSEQ {
     //
     // PART 6: cross-sample analysis
     //
+
+    // One row per sample, carrying the samplesheet's condition/replicate columns. Built here
+    // rather than inside DOWNSTREAM_ANALYSIS because DESeq2, the QC summary and the track hub
+    // all group samples the same way, and they should not each re-derive it. `.first()` makes
+    // it a value channel, so all three can consume it.
+    ch_sample_metadata = ch_shifted_bam
+        .map { meta, _bam, _bai ->
+            "${meta.id},${meta.condition ?: ''},${meta.replicate ?: ''}"
+        }
+        .collectFile(
+            name: 'sample_metadata.csv',
+            seed: 'sample,condition,replicate',
+            newLine: true,
+            sort: true
+        )
+        .first()
+
     DOWNSTREAM_ANALYSIS(
         PEAK_CALLING.out.narrow_peak,
         ch_shifted_bam,
         DEEPTOOLS_BAMCOVERAGE.out.bigwig,
         ch_blacklist,
         gtf_path,
-        ch_fai
+        ch_fai,
+        ch_sample_metadata
     )
     ch_versions      = ch_versions.mix(DOWNSTREAM_ANALYSIS.out.versions)
     ch_multiqc_files = ch_multiqc_files.mix(DOWNSTREAM_ANALYSIS.out.multiqc_files)
 
     //
+    // PART 7: a UCSC track hub over the bigWigs and peaks (opt-in)
+    //
+    if (params.trackhub) {
+        TRACK_HUB(
+            PEAK_CALLING.out.narrow_peak,
+            DEEPTOOLS_BAMCOVERAGE.out.bigwig,
+            ch_fai,
+            ch_sample_metadata,
+            params.trackhub_genome,
+            params.trackhub_email,
+            params.trackhub_name
+        )
+        ch_versions = ch_versions.mix(TRACK_HUB.out.versions)
+    }
+
+    //
     // Reporting
     //
+
+    // One figure and one table pulling the per-sample QC together: library complexity, signal
+    // distribution and peak counts, every sample side by side against the ENCODE guidelines.
+    if (!params.skip_qc_summary) {
+        QC_SUMMARY(
+            BAM_FILTER_QC.out.pbc.map        { _meta, f -> f }.toSortedList(),
+            FRIP_SCORE.out.metric.map        { _meta, f -> f }.toSortedList(),
+            PEAK_CALLING.out.narrow_peak.map { _meta, f -> f }.toSortedList(),
+            ch_sample_metadata
+        )
+        ch_versions      = ch_versions.mix(QC_SUMMARY.out.versions)
+        ch_multiqc_files = ch_multiqc_files.mix(QC_SUMMARY.out.mqc)
+    }
+
     ch_versions
         .map { it.text }
         .unique()

@@ -69,5 +69,9 @@ dependencies:
   - conda-forge::r-pheatmap
   - conda-forge::r-rcolorbrewer
 
-  # --- 7. Reporting --------------------------------------------------------
+  # --- 7. UCSC track hub (only with --trackhub) ----------------------------
+  - bioconda::ucsc-bedtobigbed=482
+  - bioconda::trackhub=1.0
+
+  # --- 8. Reporting --------------------------------------------------------
   - bioconda::multiqc=1.35

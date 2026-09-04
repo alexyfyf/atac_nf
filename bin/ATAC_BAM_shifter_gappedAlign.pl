@@ -26,19 +26,32 @@ use warnings;
 die "USEAGE:
 This program will accept alignment files from an ATAC-seq experiment and adjust the mapping fragments to better reflect the biology, outputting a modified bam file
 Arguments required: 1. sam or bam alignment file (must end in .bam or .sam) 2. Filehandle for the output
+Optional: 3. a perl regex; alignments whose reference name matches it are excluded. Pass an
+empty string to exclude nothing. Whatever is used is recorded in <output>.shift_summary.txt.
 " unless(($ARGV[0] =~ m/\.sam$/ ||$ARGV[0] =~ m/\.bam$/) && $ARGV[1] =~ m/\w/);
 
 
 my $bamFile = shift;
 my $out = shift;
+# Contig exclusion used to be hard-coded here as m/_random$/ || m/^chrUn/, which silently dropped
+# reads -- and only ever matched UCSC naming, so an Ensembl reference kept its unplaced scaffolds
+# and the two produced peak sets that were not comparable. It is now the caller's decision, and
+# whatever is chosen (including excluding nothing) is written to the summary file below.
+my $exclude = defined($ARGV[0]) ? shift : '';
 my $outBam = $out.".bam";
 my $temp = $out.".sam";
+my $summaryFile = $out.".shift_summary.txt";
 
-# only reads mapping with a quality of 10 will be considered
+my $mapq = 10;              # applied when reading the input; see below
+my $excludedReads = 0;
+my %excludedContigs;
+
+# Only reads mapping with a quality of $mapq are considered. In this pipeline that is a no-op:
+# SAMTOOLS_FILTER has already applied -q 30. It matters when the script is run standalone.
 if ($bamFile=~m/.bam$/){
-    die "cannot open $bamFile.\n" unless(open BAM,"samtools view -h -q 10 $bamFile |");
+    die "cannot open $bamFile.\n" unless(open BAM,"samtools view -h -q $mapq $bamFile |");
 }elsif($bamFile=~m/.sam$/){
-    die "cannot open $bamFile.\n" unless(open BAM,"samtools view -h -S -q 10 $bamFile |");
+    die "cannot open $bamFile.\n" unless(open BAM,"samtools view -h -S -q $mapq $bamFile |");
 }else{
     die "Input alignment file is not a .sam or .bam file\n";
 }
@@ -59,8 +72,11 @@ while(<BAM>){
     # the specific read is unmapped,
     # or map to the mitochondria.
     next unless ($line[1] ~~ $flags{'properlyPaired'});
-    #next if($line[2] ~~ m/^chrM/ || $line[2] ~~ m/_random$/ || $line[2] ~~m/^chrUn/);
-    next if($line[2] ~~ m/_random$/ || $line[2] ~~m/^chrUn/);
+    if (length($exclude) && $line[2] =~ /$exclude/) {
+        $excludedContigs{$line[2]}++;
+        $excludedReads++;
+        next;
+    }
     if($line[8]==0){ # just in case
 	print STDERR $line[0]." has a length of 0\n$_\n"; # just in case
     }
@@ -96,6 +112,24 @@ while(<BAM>){
 
 close BAM;
 close TEMP;
+
+# What this step removed, in a file rather than only in a log nobody reads. Written even when
+# nothing was excluded: "the filter ran and matched nothing" is worth being able to see.
+die "cannot open $summaryFile.\n" unless(open SUMMARY,">$summaryFile");
+print SUMMARY "# Tn5 shift: reads discarded before shifting\n";
+print SUMMARY "mapq_filter\t$mapq\n";
+print SUMMARY "exclude_pattern\t" . (length($exclude) ? $exclude : "(none)") . "\n";
+print SUMMARY "reads_excluded\t$excludedReads\n";
+foreach my $contig (sort { $excludedContigs{$b} <=> $excludedContigs{$a} || $a cmp $b }
+                    keys %excludedContigs) {
+    print SUMMARY "$contig\t$excludedContigs{$contig}\n";
+}
+close SUMMARY;
+
+if ($excludedReads) {
+    print STDERR "Excluded $excludedReads read(s) on " . scalar(keys %excludedContigs) .
+                 " contig(s) matching /$exclude/; see $summaryFile\n";
+}
 
 # convert the sam file to the bam file I want, and clean up
 `samtools view -Sb $temp > $outBam`;

@@ -1,4 +1,7 @@
-// Tn5 offset correction (+4 on the plus strand, -5 on the minus strand).
+// Tn5 offset correction (+4 on the plus strand, -5 on the minus strand), plus the contig
+// exclusion that used to be hidden inside the perl script: it is now `--exclude_contigs`, it is
+// logged in the run header, and every run writes <sample>.shift_summary.txt saying what the
+// pattern was and how many reads on which contigs it removed.
 // Deliberately keeps the bundled perl implementation rather than switching to
 // `alignmentSieve --ATACshift`, because the perl script is CIGAR-aware for gapped alignments.
 process ATAC_SHIFT_BAM {
@@ -29,9 +32,11 @@ process ATAC_SHIFT_BAM {
     input:
     tuple val(meta), path(bam), path(bai)
     path shift_script
+    val  exclude_contigs   // perl regex; alignments on matching contigs are dropped ('' = keep all)
 
     output:
     tuple val(meta), path("*_shifted_sorted.bam"), path("*_shifted_sorted.bam.bai"), emit: bam
+    tuple val(meta), path("*.shift_summary.txt")                                   , emit: summary
     path "versions.yml"                                                            , emit: versions
 
     when:
@@ -45,7 +50,11 @@ process ATAC_SHIFT_BAM {
         exit 1
     }
 
-    perl $shift_script $bam ${prefix}_shifted
+    perl $shift_script $bam ${prefix}_shifted '${exclude_contigs}'
+
+    # The script names the summary after its output prefix; publish it under the sample's name.
+    mv ${prefix}_shifted.shift_summary.txt ${prefix}.shift_summary.txt
+
     samtools sort -@ $task.cpus -o ${prefix}_shifted_sorted.bam ${prefix}_shifted.bam
     rm ${prefix}_shifted.bam
     samtools index -@ $task.cpus ${prefix}_shifted_sorted.bam
@@ -61,6 +70,7 @@ process ATAC_SHIFT_BAM {
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}_shifted_sorted.bam ${prefix}_shifted_sorted.bam.bai
+    printf '# Tn5 shift: reads discarded before shifting\\nmapq_filter\\t10\\nexclude_pattern\\t${exclude_contigs ?: "(none)"}\\nreads_excluded\\t0\\n' > ${prefix}.shift_summary.txt
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

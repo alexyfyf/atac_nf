@@ -225,6 +225,56 @@
                     "default": false,
                     "description": "Skip the TSS enrichment profile only.",
                     "fa_icon": "fas fa-forward"
+                },
+                "exclude_contigs": {
+                    "type": "string",
+                    "default": "_random$|^chrUn",
+                    "description": "Perl regex; alignments on matching contigs are dropped by the Tn5 shift step.",
+                    "help_text": "Applied before peak calling, coverage, FRiP and the counts matrix, so excluded contigs are absent from every downstream result. The default reproduces the shift script's historical behaviour and matches UCSC naming only; an Ensembl reference needs its own pattern. Pass an empty string or 'none' to keep every contig. Each sample gets a <sample>.shift_summary.txt recording the pattern and what it removed.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "skip_qc_summary": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip the cross-sample QC summary figure and table.",
+                    "fa_icon": "fas fa-forward"
+                }
+            }
+        },
+        "track_hub_options": {
+            "title": "UCSC track hub options",
+            "type": "object",
+            "fa_icon": "fas fa-eye",
+            "description": "Assemble a UCSC track hub from the per-sample bigWigs and peaks.",
+            "properties": {
+                "trackhub": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Build a UCSC track hub in <outdir>/trackhub.",
+                    "help_text": "Requires --fasta (the chromosome sizes come from its index), --trackhub_genome and --trackhub_email.",
+                    "fa_icon": "fas fa-eye"
+                },
+                "trackhub_genome": {
+                    "type": "string",
+                    "description": "UCSC assembly name the data is aligned to, e.g. hg38 or mm10.",
+                    "help_text": "Must be an assembly UCSC hosts. Anything else would need an assembly hub, which this pipeline does not build.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "trackhub_email": {
+                    "type": "string",
+                    "description": "Contact address written into hub.txt; UCSC requires one.",
+                    "fa_icon": "fas fa-envelope"
+                },
+                "trackhub_name": {
+                    "type": "string",
+                    "default": "atac_nf",
+                    "description": "Hub name. Spaces become underscores; characters other than letters, digits, -, . and _ are stripped.",
+                    "fa_icon": "fas fa-tag"
+                },
+                "trackhub_url": {
+                    "type": "string",
+                    "description": "Base URL the hub will be served from; only used to print the hub.txt URL at the end of the run.",
+                    "fa_icon": "fas fa-link"
                 }
             }
         },
@@ -300,6 +350,9 @@
         },
         {
             "$ref": "#/$defs/downstream_analysis_options"
+        },
+        {
+            "$ref": "#/$defs/track_hub_options"
         },
         {
             "$ref": "#/$defs/resource_options"

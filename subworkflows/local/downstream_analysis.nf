@@ -20,6 +20,7 @@ workflow DOWNSTREAM_ANALYSIS {
     ch_blacklist // channel: path(blacklist)  (value channel)
     gtf          // string : path to a GTF, or null
     ch_fai       // channel: path(fai)  (value channel; [] to skip the contig cross-check)
+    ch_metadata  // channel: path(csv)  sample,condition,replicate (value channel)
 
     main:
     ch_versions      = Channel.empty()
@@ -46,18 +47,6 @@ workflow DOWNSTREAM_ANALYSIS {
         ch_multiqc_files = ch_multiqc_files.mix(SUBREAD_FEATURECOUNTS.out.summary)
 
         if (!params.skip_deseq2) {
-            // One row per sample, carrying the samplesheet's condition/replicate columns.
-            ch_metadata = ch_bam
-                .map { meta, _bam, _bai ->
-                    "${meta.id},${meta.condition ?: ''},${meta.replicate ?: ''}"
-                }
-                .collectFile(
-                    name: 'sample_metadata.csv',
-                    seed: 'sample,condition,replicate',
-                    newLine: true,
-                    sort: true
-                )
-
             DESEQ2_ANALYSIS(SUBREAD_FEATURECOUNTS.out.counts, ch_metadata)
             ch_versions = ch_versions.mix(DESEQ2_ANALYSIS.out.versions)
         }
