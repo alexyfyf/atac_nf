@@ -27,9 +27,11 @@ process PICARD_COLLECTMULTIPLEMETRICS {
     def prefix    = task.ext.prefix ?: "${meta.id}"
     def avail_mem = task.memory ? (task.memory.mega * 0.8).intValue() : 3072
     // Insert-size metrics are meaningless for single-end libraries, so the program list varies.
-    def programs  = meta.single_end
+    // ext.programs overrides it, which is how the second invocation on the deduplicated BAM asks
+    // for the fragment-size distribution alone.
+    def programs  = task.ext.programs ?: (meta.single_end
         ? '--PROGRAM CollectAlignmentSummaryMetrics'
-        : '--PROGRAM CollectAlignmentSummaryMetrics --PROGRAM CollectInsertSizeMetrics'
+        : '--PROGRAM CollectAlignmentSummaryMetrics --PROGRAM CollectInsertSizeMetrics')
     // Optional for both programs we run: without it picard drops only the MISMATCH-related
     // fields, and insert sizes come from TLEN regardless.
     def reference = fasta ? "--REFERENCE_SEQUENCE ${fasta}" : ''
@@ -51,10 +53,14 @@ process PICARD_COLLECTMULTIPLEMETRICS {
 
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
-    // Mirror the real script: no insert-size output for single-end libraries.
-    def insert = meta.single_end ? '' : "touch ${prefix}.insert_size_metrics ${prefix}.insert_size_histogram.pdf"
+    // Mirror the real script, including the ext.programs override: no insert-size output for
+    // single-end libraries, and no alignment summary when only insert sizes were asked for.
+    def only_insert = task.ext.programs?.toString()?.contains('CollectInsertSizeMetrics') &&
+                      !task.ext.programs.toString().contains('CollectAlignmentSummaryMetrics')
+    def summary = only_insert ? '' : "touch ${prefix}.alignment_summary_metrics"
+    def insert  = meta.single_end ? '' : "touch ${prefix}.insert_size_metrics ${prefix}.insert_size_histogram.pdf"
     """
-    touch ${prefix}.alignment_summary_metrics
+    $summary
     $insert
 
     cat <<-END_VERSIONS > versions.yml

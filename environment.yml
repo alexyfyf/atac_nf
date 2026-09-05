@@ -69,5 +69,15 @@ dependencies:
   - conda-forge::r-pheatmap
   - conda-forge::r-rcolorbrewer
 
-  # --- 7. Reporting --------------------------------------------------------
+  # --- 6D. Per-sample peak annotation --------------------------------------
+  # Pinned: from Bioconductor 3.19 makeTxDbFromGFF moved to txdbmaker, which the ChIPseeker
+  # container does not carry, so newer ChIPseeker cannot read a GTF at all.
+  - bioconda::bioconductor-chipseeker=1.38.0
+  - bioconda::bioconductor-genomicfeatures=1.54.1
+
+  # --- 7. UCSC track hub (only with --trackhub) ----------------------------
+  - bioconda::ucsc-bedtobigbed=482
+  - bioconda::trackhub=1.0
+
+  # --- 8. Reporting --------------------------------------------------------
   - bioconda::multiqc=1.35

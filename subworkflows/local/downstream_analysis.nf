@@ -11,6 +11,7 @@ include { DESEQ2_ANALYSIS       } from '../../modules/local/deseq2_analysis'
 include { GTF_TO_TSS_BED        } from '../../modules/local/gtf_to_tss_bed'
 include { TSS_ENRICHMENT        } from '../../modules/local/tss_enrichment'
 include { ANNOTATE_PEAKS        } from '../../modules/local/annotate_peaks'
+include { CHIPSEEKER_ANNOTATE   } from '../../modules/local/chipseeker_annotate'
 
 workflow DOWNSTREAM_ANALYSIS {
     take:
@@ -20,6 +21,7 @@ workflow DOWNSTREAM_ANALYSIS {
     ch_blacklist // channel: path(blacklist)  (value channel)
     gtf          // string : path to a GTF, or null
     ch_fai       // channel: path(fai)  (value channel; [] to skip the contig cross-check)
+    ch_metadata  // channel: path(csv)  sample,condition,replicate (value channel)
 
     main:
     ch_versions      = Channel.empty()
@@ -46,30 +48,37 @@ workflow DOWNSTREAM_ANALYSIS {
         ch_multiqc_files = ch_multiqc_files.mix(SUBREAD_FEATURECOUNTS.out.summary)
 
         if (!params.skip_deseq2) {
-            // One row per sample, carrying the samplesheet's condition/replicate columns.
-            ch_metadata = ch_bam
-                .map { meta, _bam, _bai ->
-                    "${meta.id},${meta.condition ?: ''},${meta.replicate ?: ''}"
-                }
-                .collectFile(
-                    name: 'sample_metadata.csv',
-                    seed: 'sample,condition,replicate',
-                    newLine: true,
-                    sort: true
-                )
-
-            DESEQ2_ANALYSIS(SUBREAD_FEATURECOUNTS.out.counts, ch_metadata)
+            DESEQ2_ANALYSIS(
+                SUBREAD_FEATURECOUNTS.out.counts,
+                ch_metadata,
+                Channel.value(file("${projectDir}/bin/deseq2_atac.R", checkIfExists: true))
+            )
             ch_versions = ch_versions.mix(DESEQ2_ANALYSIS.out.versions)
         }
     }
 
     if (gtf) {
-        GTF_TO_TSS_BED(Channel.value(file(gtf, checkIfExists: true)), ch_fai)
+        GTF_TO_TSS_BED(Channel.value(file(gtf, checkIfExists: true)), ch_fai, params.tss_biotypes)
         ch_versions = ch_versions.mix(GTF_TO_TSS_BED.out.versions)
+        // The unfiltered set: peak annotation should be free to name any gene.
         ch_tss = GTF_TO_TSS_BED.out.bed.collect()
 
         if (!params.skip_tss_enrichment) {
-            TSS_ENRICHMENT(ch_bw_files, ch_tss, ch_blacklist, params.tss_window, params.tss_bin_size)
+            // One profile per biotype set. The label comes off the file name written by
+            // GTF_TO_TSS_BED (tss.set.<label>.bed), so a set that could not be derived -- no
+            // biotype attributes in the GTF, say -- simply produces no profile.
+            ch_tss_sets = GTF_TO_TSS_BED.out.bed_sets
+                .flatten()
+                .map { bed -> [ bed.name.replaceFirst(/^tss\.set\./, '').replaceFirst(/\.bed$/, ''), bed ] }
+
+            TSS_ENRICHMENT(
+                ch_bw_files,
+                ch_tss_sets,
+                ch_blacklist,
+                Channel.value(file("${projectDir}/bin/tss_profile_to_multiqc.py", checkIfExists: true)),
+                params.tss_window,
+                params.tss_bin_size
+            )
             ch_versions      = ch_versions.mix(TSS_ENRICHMENT.out.versions)
             ch_multiqc_files = ch_multiqc_files.mix(TSS_ENRICHMENT.out.mqc)
         }
@@ -77,6 +86,20 @@ workflow DOWNSTREAM_ANALYSIS {
         if (!params.skip_consensus) {
             ANNOTATE_PEAKS(ch_consensus_bed, ch_tss)
             ch_versions = ch_versions.mix(ANNOTATE_PEAKS.out.versions)
+        }
+
+        // Per-sample feature composition. Distinct from ANNOTATE_PEAKS above, which reports the
+        // nearest gene for the *consensus* set: that set has one composition, so there is
+        // nothing to compare between samples.
+        if (!params.skip_peak_annotation) {
+            CHIPSEEKER_ANNOTATE(
+                ch_peak_files,
+                Channel.value(file(gtf, checkIfExists: true)),
+                ch_metadata,
+                Channel.value(file("${projectDir}/bin/atac_peak_annotation.R", checkIfExists: true))
+            )
+            ch_versions      = ch_versions.mix(CHIPSEEKER_ANNOTATE.out.versions)
+            ch_multiqc_files = ch_multiqc_files.mix(CHIPSEEKER_ANNOTATE.out.mqc)
         }
     }
 

@@ -6,6 +6,12 @@
 //   * alignment/insert metrics, flagstat and idxstats are computed on the *raw* BAM
 //   * only the final flagstat is computed on the *final* (deduplicated) BAM
 //
+// One addition to that: the fragment-size distribution is collected a second time, on the
+// deduplicated BAM. The raw-BAM version is kept because the alignment metrics beside it need
+// pre-filtering reads, but the ATAC nucleosome ladder read off it is distorted -- duplicates
+// amplify whatever is most abundant, and mitochondrial fragments are both short and numerous,
+// so the sub-nucleosomal end of the distribution is the part that suffers most.
+//
 
 include { SAMTOOLS_FILTER                    } from '../../modules/local/samtools_filter'
 include { SAMTOOLS_FILTER as SAMTOOLS_FINAL  } from '../../modules/local/samtools_filter'
@@ -13,6 +19,7 @@ include { SAMTOOLS_STATS                     } from '../../modules/local/samtool
 include { SAMTOOLS_STATS as SAMTOOLS_STATS_FINAL } from '../../modules/local/samtools_stats'
 include { PICARD_MARKDUPLICATES              } from '../../modules/local/picard_markduplicates'
 include { PICARD_COLLECTMULTIPLEMETRICS      } from '../../modules/local/picard_collectmultiplemetrics'
+include { PICARD_COLLECTMULTIPLEMETRICS as PICARD_INSERTSIZE_FINAL } from '../../modules/local/picard_collectmultiplemetrics'
 include { LIBRARY_COMPLEXITY                 } from '../../modules/local/library_complexity'
 
 workflow BAM_FILTER_QC {
@@ -44,13 +51,18 @@ workflow BAM_FILTER_QC {
     SAMTOOLS_FINAL(PICARD_MARKDUPLICATES.out.bam)
     SAMTOOLS_STATS_FINAL(SAMTOOLS_FINAL.out.bam)
 
+    // The fragment-size distribution people actually read, off the deduplicated BAM.
+    PICARD_INSERTSIZE_FINAL(SAMTOOLS_FINAL.out.bam, ch_fasta)
+
     emit:
     bam            = SAMTOOLS_FINAL.out.bam                  // [ meta, bam, bai ]
     dup_metrics    = PICARD_MARKDUPLICATES.out.metrics
     picard_metrics = PICARD_COLLECTMULTIPLEMETRICS.out.metrics
+    insert_final   = PICARD_INSERTSIZE_FINAL.out.metrics
     flagstat       = SAMTOOLS_STATS.out.flagstat
     idxstats       = SAMTOOLS_STATS.out.idxstats
     final_flagstat = SAMTOOLS_STATS_FINAL.out.flagstat
+    pbc            = LIBRARY_COMPLEXITY.out.pbc
     pbc_mqc        = LIBRARY_COMPLEXITY.out.mqc
     versions       = ch_versions
 }

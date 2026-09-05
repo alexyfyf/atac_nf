@@ -180,12 +180,35 @@ jobs:
             consensus_peaks/consensus_peaks.counts.txt \
             consensus_peaks/consensus_peaks_annotated.tsv \
             differential/deseq2.normalised_counts.tsv \
-            tss_enrichment/tss_profile.pdf
+            tss_enrichment/tss_all_profile.pdf \
+            tss_enrichment/tss_all_profile_mqc.json \
+            tss_enrichment/tss_protein_coding_profile.pdf \
+            qc_summary/atac_qc_summary.tsv \
+            qc_summary/atac_qc_summary.pdf \
+            peak_annotation/peak_annotation.tsv \
+            peak_annotation/peak_annotation.pdf \
+            ShiftedBamFiles/sample1.shift_summary.txt \
+            FilteredBamFiles/sample1.final.insert_size_metrics
           do
             test -s "results/$f" || { echo "missing or empty: results/$f"; exit 1; }
           done
+          # A MultiQC section that fails to parse does not fail the run: the custom_content
+          # module catches it, drops every custom section, and MultiQC still exits 0. Assert
+          # the sections are actually in the report.
+          for s in \
+            "Library complexity (ENCODE PBC)" \
+            "Signal distribution (FRiP)" \
+            "ATAC QC summary" \
+            "Peak annotation (ChIPseeker)" \
+            "TSS enrichment (all annotated genes)" \
+            "TSS enrichment (genes with biotype protein_coding)"
+          do
+            grep -q "$s" results/MultiQC/multiqc_report.html \
+              || { echo "MultiQC section missing from the report: $s"; exit 1; }
+          done
           echo "FRiP metrics:"; cat results/FRiP/*.metric
           echo "Library complexity:"; cat results/FilteredBamFiles/*_pbc.txt
+          echo "Contig exclusions:"; cat results/ShiftedBamFiles/*.shift_summary.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:

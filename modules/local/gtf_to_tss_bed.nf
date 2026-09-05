@@ -1,5 +1,12 @@
 // Extract a one-base TSS per gene from a GTF, used for TSS-enrichment profiles and for
 // annotating consensus peaks with their nearest gene.
+//
+// One BED per requested biotype set (--tss_biotypes), because the two answer different
+// questions: over every GENCODE biotype the profile is diluted by pseudogenes, TEC and miRNA
+// entries that carry little ATAC signal (of 55,401 mm10 vM25 genes only 21,859 are protein
+// coding), while over protein-coding genes alone it is the sharper, ENCODE-comparable metric.
+// An unfiltered tss.annotation.bed is always written for ANNOTATE_PEAKS: restricting which gene
+// a peak may be assigned to would be a different and worse question.
 process GTF_TO_TSS_BED {
     tag "$gtf.baseName"
     label 'process_low'
@@ -11,11 +18,13 @@ process GTF_TO_TSS_BED {
 
     input:
     path gtf
-    path fai  // optional: pass [] to skip the contig-naming cross-check
+    path fai       // optional: pass [] to skip the contig-naming cross-check
+    val  biotypes  // comma-separated: 'all' and/or gene_type values, e.g. 'all,protein_coding'
 
     output:
-    path "tss.bed"      , emit: bed
-    path "versions.yml" , emit: versions
+    path "tss.set.*.bed"      , emit: bed_sets
+    path "tss.annotation.bed" , emit: bed
+    path "versions.yml"       , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -32,12 +41,29 @@ process GTF_TO_TSS_BED {
     # or Ensembl GTF is unchanged, while transcript/exon-only files collapse to one TSS per gene
     # rather than one per transcript.
     extract_tss() {
-        $reader | awk -v feat="\$1" 'BEGIN{OFS="\\t"}
+        $reader | awk -v feat="\$1" -v want="\$2" 'BEGIN{OFS="\\t"}
             !/^#/ && \$3==feat {
-                name="."
-                if (match(\$0, /gene_name "[^"]*"/))    { name=substr(\$0, RSTART+11, RLENGTH-12) }
-                else if (match(\$0, /gene_id "[^"]*"/)) { name=substr(\$0, RSTART+9,  RLENGTH-10) }
-                key = \$1 SUBSEP name SUBSEP \$7
+                # GENCODE spells it gene_type, Ensembl and iGenomes gene_biotype. A GTF with
+                # neither (UCSC refGene) simply cannot be filtered, which is reported below.
+                bt=""
+                if (match(\$0, /gene_type "[^"]*"/))         { bt=substr(\$0, RSTART+11, RLENGTH-12) }
+                else if (match(\$0, /gene_biotype "[^"]*"/)) { bt=substr(\$0, RSTART+14, RLENGTH-15) }
+                if (want != "all" && bt != want) next
+
+                # Keyed on gene_id, not gene_name: names are NOT unique in GENCODE. Grouping
+                # by name merged 108 mm10 vM25 genes into others sharing their name on the same
+                # contig and strand -- Pakap has three gene ids spread over 460 kb of chr4, and
+                # keeping only the most upstream of them silently discarded two real TSSs.
+                # gene_name is kept for the label only. (No apostrophes in here: this comment
+                # sits inside a single-quoted awk program, so one would close the shell quote
+                # and the rest of the script would be re-parsed by bash.)
+                id="."
+                if (match(\$0, /gene_id "[^"]*"/)) { id=substr(\$0, RSTART+9, RLENGTH-10) }
+                name=id
+                if (match(\$0, /gene_name "[^"]*"/)) { name=substr(\$0, RSTART+11, RLENGTH-12) }
+
+                key = \$1 SUBSEP id SUBSEP \$7
+                label[key]=name
                 if (\$7=="-") { if (!(key in best) || \$5 > best[key]) best[key]=\$5 }
                 else          { if (!(key in best) || \$4 < best[key]) best[key]=\$4 }
             }
@@ -45,20 +71,41 @@ process GTF_TO_TSS_BED {
                 for (k in best) {
                     split(k, a, SUBSEP)
                     s = best[k]-1; if (s<0) s=0
-                    print a[1], s, best[k], a[2], ".", a[3]
+                    print a[1], s, best[k], label[k], ".", a[3]
                 }
             }' | sort -k1,1 -k2,2n
     }
 
-    for feat in gene transcript exon; do
-        extract_tss "\$feat" > tss.bed
-        if [ -s tss.bed ]; then
-            echo "Derived \$(wc -l < tss.bed) TSS positions from '\$feat' features in ${gtf}." >&2
-            break
+    # Try 'gene', then 'transcript', then 'exon' for a given biotype set.
+    derive() {
+        for feat in gene transcript exon; do
+            extract_tss "\$feat" "\$2" > "\$1"
+            if [ -s "\$1" ]; then
+                echo "Derived \$(wc -l < \$1) TSS positions from '\$feat' features for biotype set '\$2'." >&2
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    # Always produced, whether or not 'all' was requested: ANNOTATE_PEAKS uses the complete set.
+    derive tss.annotation.bed all || true
+
+    for set in \$(echo "${biotypes}" | tr ',' ' '); do
+        label=\$(echo "\$set" | tr -cd 'A-Za-z0-9_-')
+        [ -n "\$label" ] || continue
+        if [ "\$set" = "all" ]; then
+            cp tss.annotation.bed "tss.set.\$label.bed"
+            continue
+        fi
+        if ! derive "tss.set.\$label.bed" "\$set"; then
+            rm -f "tss.set.\$label.bed"
+            echo "WARNING: no genes with gene_type/gene_biotype '\$set' in ${gtf}; skipping that" >&2
+            echo "TSS profile. A GTF without biotype attributes (UCSC refGene) cannot be filtered." >&2
         fi
     done
 
-    if [ ! -s tss.bed ]; then
+    if [ ! -s tss.annotation.bed ]; then
         echo "ERROR: ${gtf} has no 'gene', 'transcript' or 'exon' features in column 3, so TSS" >&2
         echo "positions cannot be derived. Check that the file is a GTF (not a BED or GFF3) and" >&2
         echo "that it is not empty." >&2
@@ -73,7 +120,7 @@ process GTF_TO_TSS_BED {
     # warns: GENCODE and UCSC agree on the main chromosomes but not on scaffold names.
     if [ -s "${fai}" ]; then
         cut -f1 "${fai}" | sort -u > .ref_contigs
-        cut -f1 tss.bed  | sort -u > .gtf_contigs
+        cut -f1 tss.annotation.bed | sort -u > .gtf_contigs
         SHARED=\$(comm -12 .ref_contigs .gtf_contigs | wc -l)
         ONLY_GTF=\$(comm -13 .ref_contigs .gtf_contigs | wc -l)
         if [ "\$SHARED" -eq 0 ]; then
@@ -98,7 +145,11 @@ process GTF_TO_TSS_BED {
 
     stub:
     """
-    printf "chr1\\t10000\\t10001\\tGeneA\\t.\\t+\\n" > tss.bed
+    printf "chr1\\t10000\\t10001\\tGeneA\\t.\\t+\\n" > tss.annotation.bed
+    for set in \$(echo "${biotypes}" | tr ',' ' '); do
+        label=\$(echo "\$set" | tr -cd 'A-Za-z0-9_-')
+        cp tss.annotation.bed "tss.set.\$label.bed"
+    done
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

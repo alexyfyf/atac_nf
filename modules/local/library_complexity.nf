@@ -42,7 +42,15 @@ process LIBRARY_COMPLEXITY {
                {m0=m0+1; mt=mt+\$1}
                END{ printf "%d\\t%d\\t%d\\t%d\\t%f\\t%f\\t%f\\n", mt, m0, m1, m2,
                     (mt>0 ? m0/mt : 0), (m0>0 ? m1/m0 : 0), (m2>0 ? m1/m2 : 0) }' \\
+        > ${prefix}.pbc_values
+
+    # The published table carries a header row: it is a file people open and read, and seven
+    # bare numbers are unreadable without going back to the source. The unlabelled values stay
+    # in ${prefix}.pbc_values so the MultiQC table below can be built without re-skipping it.
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+        TotalReadPairs DistinctReadPairs OneReadPair TwoReadPairs NRF PBC1 PBC2 \\
         > ${prefix}_pbc.txt
+    cat ${prefix}.pbc_values >> ${prefix}_pbc.txt
 
     # MultiQC custom content: a one-row table per sample, merged across samples by MultiQC.
     # Written with printf rather than a here-doc: a tab-indented here-doc would defeat the
@@ -58,7 +66,7 @@ process LIBRARY_COMPLEXITY {
         "Sample\\tTotalReadPairs\\tDistinctReadPairs\\tOneReadPair\\tTwoReadPairs\\tNRF\\tPBC1\\tPBC2" \\
         > ${prefix}_pbc_mqc.tsv
     awk -v s="${prefix}" 'BEGIN{OFS="\\t"}{print s, \$1, \$2, \$3, \$4, \$5, \$6, \$7}' \\
-        ${prefix}_pbc.txt >> ${prefix}_pbc_mqc.tsv
+        ${prefix}.pbc_values >> ${prefix}_pbc_mqc.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -70,7 +78,7 @@ process LIBRARY_COMPLEXITY {
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    printf "0\\t0\\t0\\t0\\t0\\t0\\t0\\n" > ${prefix}_pbc.txt
+    printf "TotalReadPairs\\tDistinctReadPairs\\tOneReadPair\\tTwoReadPairs\\tNRF\\tPBC1\\tPBC2\\n0\\t0\\t0\\t0\\t0\\t0\\t0\\n" > ${prefix}_pbc.txt
     touch ${prefix}_pbc_mqc.tsv
 
     cat <<-END_VERSIONS > versions.yml

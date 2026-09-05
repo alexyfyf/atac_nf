@@ -18,7 +18,7 @@ nextflow_pipeline {
 
             // Per-sample processes for two samples, plus the single-instance reference and
             // cross-sample tasks.
-            assert workflow.trace.tasks().size() == 43   // 42 + GENOME_STATS
+            assert workflow.trace.tasks().size() == 48   // 47 + the second TSS biotype profile
 
             // Reporting
             assert path("$outputDir/MultiQC/multiqc_report.html").exists()
@@ -40,7 +40,16 @@ nextflow_pipeline {
             assert path("$outputDir/FilteredBamFiles/sample1_dups.txt").exists()
             assert path("$outputDir/FilteredBamFiles/sample1_pbc.txt").exists()
 
+            // The fragment-size distribution is collected on the raw BAM and again on the
+            // deduplicated one; the nucleosome ladder is read off the latter.
+            assert path("$outputDir/FilteredBamFiles/sample1.insert_size_metrics").exists()
+            assert path("$outputDir/FilteredBamFiles/sample1.final.insert_size_metrics").exists()
+
             assert path("$outputDir/ShiftedBamFiles/sample1_shifted_sorted.bam").exists()
+            // Whatever the shift step discarded is recorded per sample
+            assert path("$outputDir/ShiftedBamFiles/sample1.shift_summary.txt").exists()
+            assert path("$outputDir/ShiftedBamFiles/sample1.shift_summary.txt").text
+                .contains("exclude_pattern\t_random\$|^chrUn")
 
             // Narrow and broad peaks are separate MACS invocations
             assert path("$outputDir/macs2/sample1_narrow_peaks.narrowPeak").exists()
@@ -55,10 +64,26 @@ nextflow_pipeline {
             assert path("$outputDir/consensus_peaks/consensus_peaks.counts.txt").exists()
             assert path("$outputDir/differential/deseq2.normalised_counts.tsv").exists()
 
+            // Cross-sample QC summary (on by default)
+            assert path("$outputDir/qc_summary/atac_qc_summary.tsv").exists()
+            assert path("$outputDir/qc_summary/atac_qc_summary.pdf").exists()
+            assert path("$outputDir/qc_summary/atac_qc_summary_mqc.tsv").exists()
+
+            // The track hub is opt-in
+            assert !path("$outputDir/trackhub").exists()
+
             // GTF-driven steps (the test profile supplies one)
-            assert path("$outputDir/tss_enrichment/tss_profile.pdf").exists()
-            assert path("$outputDir/tss_enrichment/tss_profile_mqc.tsv").exists()
+            // One profile per --tss_biotypes entry, and the MultiQC data is JSON: a TSV header
+            // gives MultiQC no way to know the x axis is numeric, and it sorts the positions
+            // as strings.
+            assert path("$outputDir/tss_enrichment/tss_all_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_all_profile_mqc.json").exists()
+            assert path("$outputDir/tss_enrichment/tss_protein_coding_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_protein_coding_profile_mqc.json").exists()
             assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // Per-sample ChIPseeker annotation, distinct from the consensus one above
+            assert path("$outputDir/peak_annotation/peak_annotation.pdf").exists()
+            assert path("$outputDir/peak_annotation/peak_annotation_mqc.tsv").exists()
 
             // hmmratac is off by default
             assert !path("$outputDir/hmmratac").exists()
@@ -80,6 +105,8 @@ nextflow_pipeline {
             assert workflow.success
             assert !path("$outputDir/tss_enrichment").exists()
             assert !path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // Both annotation steps need the GTF
+            assert !path("$outputDir/peak_annotation").exists()
             // The consensus peak set does not depend on the GTF
             assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
         }
@@ -119,8 +146,9 @@ nextflow_pipeline {
         then {
             assert workflow.success
             assert path("$outputDir/FilteredBamFiles/se1.final.bam").exists()
-            // No insert-size metrics for single-end libraries
+            // No insert-size metrics for single-end libraries, from either pass
             assert !path("$outputDir/FilteredBamFiles/se1.insert_size_metrics").exists()
+            assert !path("$outputDir/FilteredBamFiles/se1.final.insert_size_metrics").exists()
         }
     }
 
@@ -154,8 +182,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 42.
-            assert workflow.trace.tasks().size() == 39   // 38 + GENOME_STATS
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 48.
+            assert workflow.trace.tasks().size() == 44
             assert !path("$outputDir/trim").exists()
             assert !path("$outputDir/post_fastqc").exists()
             // ...and the untrimmed reads still make it all the way through.
@@ -344,6 +372,171 @@ nextflow_pipeline {
             assert workflow.failed
             assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
                 .contains("No blacklist given")
+        }
+    }
+
+    test("--skip_peak_annotation drops only the per-sample annotation") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir               = "$outputDir"
+                skip_peak_annotation = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/peak_annotation").exists()
+            // The consensus-level annotation is a different step and is unaffected
+            assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+        }
+    }
+
+    test("--skip_qc_summary drops the QC summary") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                skip_qc_summary = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/qc_summary").exists()
+            // Everything it summarises is still produced
+            assert path("$outputDir/FilteredBamFiles/sample1_pbc.txt").exists()
+            assert path("$outputDir/FRiP/sample1.metric").exists()
+        }
+    }
+
+    test("--exclude_contigs none keeps every contig, and says so") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                exclude_contigs = "none"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // 'none' is normalised to an empty pattern, and the summary records that rather
+            // than leaving the reader to guess what ran. (The run header says the same thing,
+            // but nf-test only exposes workflow.stdout for runs that failed.)
+            assert path("$outputDir/ShiftedBamFiles/sample1.shift_summary.txt").text
+                .contains("exclude_pattern\t(none)")
+            assert path("$outputDir/ShiftedBamFiles/sample2.shift_summary.txt").text
+                .contains("exclude_pattern\t(none)")
+        }
+    }
+
+    test("--exclude_contigs rejects a pattern that would break the shell quoting") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                exclude_contigs = "chrUn'"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("may not contain a single quote")
+        }
+    }
+
+    test("--trackhub builds a UCSC track hub") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                trackhub        = true
+                trackhub_genome = "hg38"
+                trackhub_email  = "test@example.com"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // 48 + one bigBed conversion per sample + the hub itself
+            assert workflow.trace.tasks().size() == 51
+            assert path("$outputDir/trackhub/atac_nf.hub.txt").exists()   // <hub name>.hub.txt
+            assert path("$outputDir/trackhub/hg38/trackDb.txt").exists()
+        }
+    }
+
+    test("--trackhub without a UCSC assembly name is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir         = "$outputDir"
+                trackhub       = true
+                trackhub_email = "test@example.com"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("--trackhub needs --trackhub_genome")
+        }
+    }
+
+    test("--trackhub without a contact address is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir          = "$outputDir"
+                trackhub        = true
+                trackhub_genome = "hg38"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("--trackhub needs --trackhub_email")
+        }
+    }
+
+    test("--trackhub without a reference FASTA is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir                = "$outputDir"
+                fasta                 = null
+                aligner_index         = "$projectDir/tests/data/bwa_index"
+                macs_gsize            = "2000000"
+                effective_genome_size = "2000000"
+                blacklist             = "$projectDir/tests/data/blacklist.bed"
+                trackhub              = true
+                trackhub_genome       = "hg38"
+                trackhub_email        = "test@example.com"
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("--trackhub needs --fasta")
         }
     }
 }

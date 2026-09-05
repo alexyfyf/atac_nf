@@ -162,8 +162,7 @@ removed, and is the point of the step.
 ### 5b. Library complexity
 
 ```bash
-column -t results_real/FilteredBamFiles/*_pbc.txt
-# TotalReadPairs DistinctReadPairs OneReadPair TwoReadPairs NRF PBC1 PBC2
+column -t results_real/FilteredBamFiles/*_pbc.txt   # the files carry their own header row
 ```
 
 ENCODE's guidance for a good library is roughly NRF > 0.9, PBC1 > 0.9, PBC2 > 10. Low values mean
@@ -194,8 +193,7 @@ non-empty first.
 ### 5e. Signal distribution
 
 ```bash
-column -t results_real/FRiP/*.metric
-# ReadsInPeaks ReadsInBlacklist ReadsInMT TotalReads FRiP BlacklistFraction MTFraction
+column -t results_real/FRiP/*.metric   # the files carry their own header row
 ```
 
 FRiP above ~0.3 is the usual ENCODE target, though it is strongly tissue- and protocol-dependent.
@@ -272,7 +270,7 @@ Then compare against the new run:
 diff <(grep 'mapped (' results_old/FilteredBamFiles/S.final.flagstat) \
      <(grep 'mapped (' results_real/FilteredBamFiles/S.final.flagstat)
 wc -l results_old/macs2/*narrowPeak results_real/macs2/*narrowPeak
-paste results_old/FRiP/S.metric results_real/FRiP/S.metric
+paste <(tail -n1 results_old/FRiP/S.metric) <(tail -n1 results_real/FRiP/S.metric)
 ```
 
 What to expect: **alignment and filtering agree exactly**, not merely closely. This has been
