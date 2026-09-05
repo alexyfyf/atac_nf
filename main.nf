@@ -349,7 +349,8 @@ workflow ATACSEQ {
             BAM_FILTER_QC.out.pbc.map        { _meta, f -> f }.toSortedList(),
             FRIP_SCORE.out.metric.map        { _meta, f -> f }.toSortedList(),
             PEAK_CALLING.out.narrow_peak.map { _meta, f -> f }.toSortedList(),
-            ch_sample_metadata
+            ch_sample_metadata,
+            Channel.value(file("${projectDir}/bin/atac_qc_summary.R", checkIfExists: true))
         )
         ch_versions      = ch_versions.mix(QC_SUMMARY.out.versions)
         ch_multiqc_files = ch_multiqc_files.mix(QC_SUMMARY.out.mqc)

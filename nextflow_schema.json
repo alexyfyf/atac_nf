@@ -226,12 +226,33 @@
                     "description": "Skip the TSS enrichment profile only.",
                     "fa_icon": "fas fa-forward"
                 },
+                "skip_peak_annotation": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Skip the per-sample ChIPseeker peak annotation.",
+                    "help_text": "Needs --gtf, and a GTF with transcript records: a TxDb cannot be built from a gene- or exon-only annotation, unlike the TSS extraction used for TSS enrichment.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "annotation_tss_region": {
+                    "type": "integer",
+                    "default": 3000,
+                    "description": "Half-width in bp of the promoter class in the ChIPseeker annotation.",
+                    "help_text": "Separate from --tss_window, which is the range of the deeptools TSS profile rather than a classification threshold. Note also that the two steps use different TSS sets from the same GTF: the profile uses one TSS per gene, ChIPseeker one per transcript.",
+                    "fa_icon": "fas fa-arrows-alt-h"
+                },
                 "exclude_contigs": {
                     "type": "string",
                     "default": "_random$|^chrUn",
                     "description": "Perl regex; alignments on matching contigs are dropped by the Tn5 shift step.",
                     "help_text": "Applied before peak calling, coverage, FRiP and the counts matrix, so excluded contigs are absent from every downstream result. The default reproduces the shift script's historical behaviour and matches UCSC naming only; an Ensembl reference needs its own pattern. Pass an empty string or 'none' to keep every contig. Each sample gets a <sample>.shift_summary.txt recording the pattern and what it removed.",
                     "fa_icon": "fas fa-filter"
+                },
+                "tss_biotypes": {
+                    "type": "string",
+                    "default": "all,protein_coding",
+                    "description": "Comma-separated gene sets to build TSS-enrichment profiles over.",
+                    "help_text": "'all' uses every gene in the GTF; any other value is matched against gene_type (GENCODE) or gene_biotype (Ensembl). Both are produced by default: over all biotypes the profile is diluted by pseudogenes and other low-signal entries, while protein-coding alone is the sharper, ENCODE-comparable metric. A GTF carrying no biotype attributes can only produce the 'all' profile, and says so in the log.",
+                    "fa_icon": "fas fa-dna"
                 },
                 "skip_qc_summary": {
                     "type": "boolean",

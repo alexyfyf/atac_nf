@@ -1,3 +1,4 @@
+// The R script is an input so its contents are hashed; see the note in qc_summary.nf.
 process DESEQ2_ANALYSIS {
     label 'process_medium'
 
@@ -9,6 +10,7 @@ process DESEQ2_ANALYSIS {
     input:
     path counts
     path metadata
+    path script    // bin/deseq2_atac.R; an input so its contents are hashed
 
     output:
     path "*.normalised_counts.tsv" , emit: normalised_counts
@@ -24,7 +26,7 @@ process DESEQ2_ANALYSIS {
     script:
     def args = task.ext.args ?: ''
     """
-    deseq2_atac.R \\
+    ./${script} \\
         --counts $counts \\
         --metadata $metadata \\
         --outprefix deseq2 \\

@@ -19,6 +19,7 @@ results/
 ├── differential/        DESeq2 QC and differential accessibility
 ├── tss_enrichment/      TSS profile and heatmap (only with --gtf)
 ├── qc_summary/          Cross-sample QC figure and table
+├── peak_annotation/     Per-sample ChIPseeker annotation and composition plot
 ├── trackhub/            UCSC track hub (only with --trackhub)
 ├── MultiQC/             Aggregate report
 └── pipeline_info/       Execution reports and software versions
@@ -173,15 +174,65 @@ opening the MultiQC report section by section.
 
 | File | Contents |
 | --- | --- |
-| `atac_qc_summary.pdf` | Eight panels — read pairs, NRF, PBC1, PBC2, peak count, FRiP, mitochondrial fraction (library-level), blacklist fraction — one bar per sample, coloured by condition. Dashed lines mark the ENCODE guideline values for NRF, PBC1 and PBC2, and the usual FRiP floor of 0.2. |
+| `atac_qc_summary.pdf` | Eight panels — read pairs (see below), NRF, PBC1, PBC2, peak count, FRiP, mitochondrial fraction (library-level), blacklist fraction — one bar per sample, coloured by condition. Dashed lines mark the ENCODE guideline values for NRF, PBC1 and PBC2, and the usual FRiP floor of 0.2. |
 | `atac_qc_summary.tsv` | The same numbers, plus the counts behind them, one row per sample. Both mitochondrial fractions are carried through from the FRiP metrics; the figure plots `mt_fraction_raw`. |
 | `atac_qc_summary_mqc.tsv` | The table as MultiQC custom content; it appears in the report as "ATAC QC summary". |
 | `atac_qc_summary.sessionInfo.txt` | R session for the figure. |
+
+"Read pairs, filtered pre-dedup" is `TotalReadPairs` from the PBC calculation: pairs in the
+duplicate-marked BAM, i.e. after `-F 1804 -f 2 -q 30`, **before** deduplication, with the
+mitochondrial contig excluded. It is neither the sequenced depth nor the usable depth — for one
+sample in the validation run: 40.4M raw, 37.5M here, 25.4M in the final BAM — and it has to be
+that value for the NRF/PBC1/PBC2 panels beside it to share a denominator. For sequenced depth
+read the raw flagstat; for usable depth, the final one.
 
 The guideline lines are guidance, not thresholds: a sample below one is worth looking at, not
 automatically a failure. A panel is dropped rather than drawn empty when the metric could not be
 measured for any sample — a reference with no mitochondrial contig loses the MT panel. Skip the
 whole step with `--skip_qc_summary`.
+
+## peak_annotation
+
+Per-sample peak annotation with ChIPseeker, from a transcript database built out of the supplied
+GTF (so no species-specific annotation package is needed). Requires `--gtf`; skip with
+`--skip_peak_annotation`.
+
+| File | Contents |
+| --- | --- |
+| `peak_annotation.pdf` | Two ChIPseeker plots across all samples: stacked feature composition (`plotAnnoBar`) and the distribution of distances to the nearest TSS (`plotDistToTSS`), samples grouped by condition |
+| `peak_annotation.tsv` | Long table: sample, condition, feature, percent, peaks |
+| `<sample>.peak_annotation.tsv` | Every peak of that sample with its annotation, nearest transcript and distance to TSS |
+| `peak_annotation_mqc.tsv` | Stacked bar chart in the MultiQC report |
+
+This is a feature classification — promoter / 5′UTR / exon / intron / 3′UTR / downstream / distal
+intergenic — and is a different thing from `consensus_peaks/consensus_peaks_annotated.tsv`, which
+reports the *nearest gene and distance* for the *consensus* set using `bedtools closest`. Both
+are kept: the consensus file answers "which gene is this peak near", this one answers "what kind
+of regions did this sample's peaks fall in".
+
+It is per sample by design. The consensus set has a single composition, so nothing can be
+compared across samples; per sample the plot is diagnostic. In the validation run the library
+with half the peak count also had the highest promoter fraction (54% vs 43% for its partner) —
+only the strongest promoter peaks survived, which is what a weak library looks like.
+
+**The two TSS-based steps do not use the same TSS positions**, and the difference is worth
+knowing before comparing them. Both start from your GTF, but:
+
+| | `tss_enrichment/` (deeptools) | `peak_annotation/` (ChIPseeker) |
+| --- | --- | --- |
+| TSS set | one per **gene**, the 5-most position across that gene's records | one per **transcript** |
+| Count, GENCODE vM25 | 55,293 | 142,604 |
+| Window | `--tss_window` (2000), the range the profile is drawn over | `--annotation_tss_region` (3000), the boundary of the promoter class |
+
+So ChIPseeker's promoter fraction is systematically the more generous of the two: any of a gene's
+alternative TSSs can put a peak in "Promoter (<=1kb)". The profile is correspondingly sharper,
+being centred on one canonical TSS per gene. The windows are separate parameters on purpose --
+one is a plot range, the other a classification threshold.
+
+**A TxDb needs transcript records.** `makeTxDbFromGFF` cannot build one from a gene- or exon-only
+GTF, even though the TSS extraction used for TSS enrichment falls back to those. If your GTF is
+one of those (iGenomes mm10, UCSC refGene), this step fails with a message saying so; use
+`--skip_peak_annotation` or supply a full annotation such as GENCODE.
 
 ## trackhub
 

@@ -4,6 +4,8 @@
 //
 // MultiQC already reports each of these in its own section. This adds the view that a report
 // actually needs: every sample side by side, on one page, against the ENCODE guideline values.
+// The R script is an input, not just a PATH lookup: Nextflow does not hash bin/, so editing it
+// would leave this task CACHED on -resume, silently publishing a figure built by the old code.
 process QC_SUMMARY {
     label 'process_low'
 
@@ -20,6 +22,7 @@ process QC_SUMMARY {
     path frip         // *.metric    from FRIP_SCORE (carries both MT fractions)
     path peaks        // *.narrowPeak from MACS3_CALLPEAK_NARROW
     path metadata     // sample,condition,replicate
+    path script       // bin/atac_qc_summary.R; an input so its contents are hashed
 
     output:
     path "atac_qc_summary.tsv"        , emit: summary
@@ -36,7 +39,7 @@ process QC_SUMMARY {
     // The script reads the staged files by pattern from the task directory rather than taking
     // lists on the command line, so adding a metric later is a change in one place.
     """
-    atac_qc_summary.R \\
+    ./${script} \\
         --indir . \\
         --metadata $metadata \\
         --outprefix atac_qc_summary \\

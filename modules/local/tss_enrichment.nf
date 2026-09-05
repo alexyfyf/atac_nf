@@ -1,5 +1,8 @@
 // TSS enrichment profile across all samples — one of the QC metrics the ENCODE ATAC-seq
 // standard asks for, and the clearest single indicator of signal-to-noise in an ATAC library.
+// The MultiQC converter is taken as an input rather than called off the PATH: Nextflow does not
+// hash the contents of bin/, so with -resume an edit to that script leaves this task CACHED and
+// its outputs stale. Staging it makes its content part of the task hash.
 process TSS_ENRICHMENT {
     label 'process_high'
 
@@ -10,17 +13,18 @@ process TSS_ENRICHMENT {
 
     input:
     path bigwigs
-    path tss_bed
+    tuple val(set_label), path(tss_bed)   // biotype set the TSS positions were filtered to
     path blacklist
+    path script      // bin/tss_profile_to_multiqc.py; an input so its contents are hashed
     val  window
     val  bin_size
 
     output:
-    path "tss_matrix.gz"       , emit: matrix
-    path "tss_profile.pdf"     , emit: profile
-    path "tss_heatmap.pdf"     , emit: heatmap
-    path "tss_profile_mqc.tsv" , emit: mqc
-    path "versions.yml"        , emit: versions
+    path "*_matrix.gz"       , emit: matrix
+    path "*_profile.pdf"     , emit: profile
+    path "*_heatmap.pdf"     , emit: heatmap
+    path "*_mqc.json"        , emit: mqc
+    path "versions.yml"      , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -28,6 +32,7 @@ process TSS_ENRICHMENT {
     script:
     def args   = task.ext.args ?: '--skipZeros --missingDataAsZero'
     def labels = bigwigs.collect { it.getName().replaceAll(/\.bw$/, '') }.join(' ')
+    def prefix = "tss_${set_label}"
     """
     computeMatrix reference-point \\
         --referencePoint TSS \\
@@ -39,22 +44,23 @@ process TSS_ENRICHMENT {
         --samplesLabel $labels \\
         --blackListFileName $blacklist \\
         --numberOfProcessors $task.cpus \\
-        --outFileName tss_matrix.gz \\
+        --outFileName ${prefix}_matrix.gz \\
         $args
 
-    plotProfile --matrixFile tss_matrix.gz \\
-        --outFileName tss_profile.pdf \\
-        --outFileNameData tss_profile.tab \\
+    plotProfile --matrixFile ${prefix}_matrix.gz \\
+        --outFileName ${prefix}_profile.pdf \\
+        --outFileNameData ${prefix}_profile.tab \\
         --refPointLabel TSS \\
         --perGroup
 
-    plotHeatmap --matrixFile tss_matrix.gz \\
-        --outFileName tss_heatmap.pdf \\
+    plotHeatmap --matrixFile ${prefix}_matrix.gz \\
+        --outFileName ${prefix}_heatmap.pdf \\
         --refPointLabel TSS
 
-    tss_profile_to_multiqc.py \\
-        --input tss_profile.tab \\
-        --output tss_profile_mqc.tsv \\
+    ./${script} \\
+        --input ${prefix}_profile.tab \\
+        --output ${prefix}_profile_mqc.json \\
+        --set-label '${set_label}' \\
         --window $window \\
         --bin-size $bin_size
 
@@ -65,8 +71,9 @@ process TSS_ENRICHMENT {
     """
 
     stub:
+    def prefix = "tss_${set_label}"
     """
-    touch tss_matrix.gz tss_profile.pdf tss_heatmap.pdf tss_profile_mqc.tsv
+    touch ${prefix}_matrix.gz ${prefix}_profile.pdf ${prefix}_heatmap.pdf ${prefix}_profile_mqc.json
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

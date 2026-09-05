@@ -42,6 +42,12 @@ THRESHOLDS <- data.frame(
 
 # Panel order and labels. Counts are rescaled so a panel of millions does not sit next to a
 # panel of fractions with an unreadable axis.
+#
+# "Read pairs, filtered pre-dedup" is deliberately laboured: total_read_pairs is LIBRARY_
+# COMPLEXITY's denominator, read off the duplicate-marked BAM -- after -F 1804 -f 2 -q 30, before
+# deduplication, mitochondrial contig excluded. It is neither what was sequenced nor what
+# survives to peak calling (for one real sample: 40.4M raw, 37.5M here, 25.4M final), and it has
+# to be this value for the NRF/PBC1/PBC2 panels beside it to share a denominator.
 # `mt_fraction_raw` rather than `mt_fraction_shifted`: the shifted BAM is post-MAPQ-filter and
 # post-deduplication, and chrM is the contig those two steps hit hardest (high copy number, and
 # NUMT homology pushes its MAPQ under 30). What survives there is residual contamination, not
@@ -50,7 +56,7 @@ THRESHOLDS <- data.frame(
 PANELS <- data.frame(
     column = c("total_read_pairs", "nrf", "pbc1", "pbc2",
                "n_peaks", "frip", "mt_fraction_raw", "blacklist_fraction"),
-    metric = c("Read pairs (millions)", "NRF", "PBC1", "PBC2",
+    metric = c("Read pairs, filtered pre-dedup (millions)", "NRF", "PBC1", "PBC2",
                "Peaks (thousands)", "FRiP", "Mitochondrial fraction (library)", "Blacklist fraction"),
     line   = c(NA, "NRF", "PBC1", "PBC2", NA, "FRiP", NA, NA),
     stringsAsFactors = FALSE

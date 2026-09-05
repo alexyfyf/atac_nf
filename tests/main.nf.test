@@ -18,7 +18,7 @@ nextflow_pipeline {
 
             // Per-sample processes for two samples, plus the single-instance reference and
             // cross-sample tasks.
-            assert workflow.trace.tasks().size() == 46   // 44 + PICARD_INSERTSIZE_FINAL per sample
+            assert workflow.trace.tasks().size() == 48   // 47 + the second TSS biotype profile
 
             // Reporting
             assert path("$outputDir/MultiQC/multiqc_report.html").exists()
@@ -73,9 +73,17 @@ nextflow_pipeline {
             assert !path("$outputDir/trackhub").exists()
 
             // GTF-driven steps (the test profile supplies one)
-            assert path("$outputDir/tss_enrichment/tss_profile.pdf").exists()
-            assert path("$outputDir/tss_enrichment/tss_profile_mqc.tsv").exists()
+            // One profile per --tss_biotypes entry, and the MultiQC data is JSON: a TSV header
+            // gives MultiQC no way to know the x axis is numeric, and it sorts the positions
+            // as strings.
+            assert path("$outputDir/tss_enrichment/tss_all_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_all_profile_mqc.json").exists()
+            assert path("$outputDir/tss_enrichment/tss_protein_coding_profile.pdf").exists()
+            assert path("$outputDir/tss_enrichment/tss_protein_coding_profile_mqc.json").exists()
             assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // Per-sample ChIPseeker annotation, distinct from the consensus one above
+            assert path("$outputDir/peak_annotation/peak_annotation.pdf").exists()
+            assert path("$outputDir/peak_annotation/peak_annotation_mqc.tsv").exists()
 
             // hmmratac is off by default
             assert !path("$outputDir/hmmratac").exists()
@@ -97,6 +105,8 @@ nextflow_pipeline {
             assert workflow.success
             assert !path("$outputDir/tss_enrichment").exists()
             assert !path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+            // Both annotation steps need the GTF
+            assert !path("$outputDir/peak_annotation").exists()
             // The consensus peak set does not depend on the GTF
             assert path("$outputDir/consensus_peaks/consensus_peaks.bed").exists()
         }
@@ -172,8 +182,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 46.
-            assert workflow.trace.tasks().size() == 42
+            // Two TRIMMOMATIC and two FASTQC_TRIM tasks drop out of the default 48.
+            assert workflow.trace.tasks().size() == 44
             assert !path("$outputDir/trim").exists()
             assert !path("$outputDir/post_fastqc").exists()
             // ...and the untrimmed reads still make it all the way through.
@@ -365,6 +375,25 @@ nextflow_pipeline {
         }
     }
 
+    test("--skip_peak_annotation drops only the per-sample annotation") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir               = "$outputDir"
+                skip_peak_annotation = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert !path("$outputDir/peak_annotation").exists()
+            // The consensus-level annotation is a different step and is unaffected
+            assert path("$outputDir/consensus_peaks/consensus_peaks_annotated.tsv").exists()
+        }
+    }
+
     test("--skip_qc_summary drops the QC summary") {
 
         options "-stub-run"
@@ -441,8 +470,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            // 46 + one bigBed conversion per sample + the hub itself
-            assert workflow.trace.tasks().size() == 49
+            // 48 + one bigBed conversion per sample + the hub itself
+            assert workflow.trace.tasks().size() == 51
             assert path("$outputDir/trackhub/atac_nf.hub.txt").exists()   // <hub name>.hub.txt
             assert path("$outputDir/trackhub/hg38/trackDb.txt").exists()
         }

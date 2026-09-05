@@ -83,7 +83,8 @@ single-end data).
 | 6B | Counts matrix over consensus peaks | featureCounts |
 | 6C | Sample QC (PCA, correlation) and differential accessibility | DESeq2 |
 | 6D | TSS enrichment profile *(needs `--gtf`)* | deeptools |
-| 6E | Nearest-gene peak annotation *(needs `--gtf`)* | bedtools `closest` |
+| 6E | Nearest-gene annotation of consensus peaks *(needs `--gtf`)* | bedtools `closest` |
+| 6E | Per-sample peak annotation and composition *(needs `--gtf`)* | ChIPseeker |
 | 6F | Cross-sample QC summary (figure + table) | R / ggplot2 |
 | 7A | Aggregate report | MultiQC |
 | 7B | UCSC track hub *(optional)* | `bedToBigBed` + [`trackhub`](https://daler.github.io/trackhub/) |
@@ -112,6 +113,8 @@ single-end data).
 | `--skip_deseq2` | `false` | Skip DESeq2 only |
 | `--skip_tss_enrichment` | `false` | Skip the TSS profile only |
 | `--skip_qc_summary` | `false` | Skip the cross-sample QC summary figure and table |
+| `--skip_peak_annotation` | `false` | Skip the per-sample ChIPseeker annotation |
+| `--annotation_tss_region` | `3000` | Promoter half-width for the ChIPseeker annotation (distinct from `--tss_window`) |
 | `--trackhub` | `false` | Build a UCSC track hub; needs `--trackhub_genome` and `--trackhub_email` |
 | `--outdir` | `results` | Output directory |
 

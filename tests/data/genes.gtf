@@ -1,9 +1,13 @@
 #!genome-build synthetic
 chr1	synthetic	gene	10000	12000	.	+	.	gene_id "GeneA"; gene_name "GeneA"; gene_biotype "protein_coding";
-chr1	synthetic	exon	10000	12000	.	+	.	gene_id "GeneA"; gene_name "GeneA"; gene_biotype "protein_coding";
+chr1	synthetic	transcript	10000	12000	.	+	.	gene_id "GeneA"; transcript_id "GeneA.1"; gene_name "GeneA"; gene_biotype "protein_coding";
+chr1	synthetic	exon	10000	12000	.	+	.	gene_id "GeneA"; transcript_id "GeneA.1"; gene_name "GeneA"; gene_biotype "protein_coding";
 chr1	synthetic	gene	28000	30000	.	-	.	gene_id "GeneB"; gene_name "GeneB"; gene_biotype "protein_coding";
-chr1	synthetic	exon	28000	30000	.	-	.	gene_id "GeneB"; gene_name "GeneB"; gene_biotype "protein_coding";
+chr1	synthetic	transcript	28000	30000	.	-	.	gene_id "GeneB"; transcript_id "GeneB.1"; gene_name "GeneB"; gene_biotype "protein_coding";
+chr1	synthetic	exon	28000	30000	.	-	.	gene_id "GeneB"; transcript_id "GeneB.1"; gene_name "GeneB"; gene_biotype "protein_coding";
 chr1	synthetic	gene	70000	72000	.	+	.	gene_id "GeneC"; gene_name "GeneC"; gene_biotype "protein_coding";
-chr1	synthetic	exon	70000	72000	.	+	.	gene_id "GeneC"; gene_name "GeneC"; gene_biotype "protein_coding";
+chr1	synthetic	transcript	70000	72000	.	+	.	gene_id "GeneC"; transcript_id "GeneC.1"; gene_name "GeneC"; gene_biotype "protein_coding";
+chr1	synthetic	exon	70000	72000	.	+	.	gene_id "GeneC"; transcript_id "GeneC.1"; gene_name "GeneC"; gene_biotype "protein_coding";
 chr1	synthetic	gene	88000	90000	.	-	.	gene_id "GeneD"; gene_name "GeneD"; gene_biotype "protein_coding";
-chr1	synthetic	exon	88000	90000	.	-	.	gene_id "GeneD"; gene_name "GeneD"; gene_biotype "protein_coding";
+chr1	synthetic	transcript	88000	90000	.	-	.	gene_id "GeneD"; transcript_id "GeneD.1"; gene_name "GeneD"; gene_biotype "protein_coding";
+chr1	synthetic	exon	88000	90000	.	-	.	gene_id "GeneD"; transcript_id "GeneD.1"; gene_name "GeneD"; gene_biotype "protein_coding";
