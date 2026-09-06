@@ -45,6 +45,40 @@ TotalReadPairs  DistinctReadPairs  OneReadPair  TwoReadPairs  NRF     PBC1      
 
 ENCODE considers NRF ≥ 0.9, PBC1 ≥ 0.9 and PBC2 ≥ 10 to be ideal.
 
+### The "mate does not occur next to it" warnings are expected
+
+The log for this step carries tens of thousands of lines like:
+
+```
+*****WARNING: Query A00611:... is marked as paired, but its mate does not occur
+next to it in your BAM file.  Skipping.
+```
+
+They are not a sign that anything is wrong, and the numbers above are unaffected.
+
+`SAMTOOLS_FILTER` drops reads below MAPQ 30 individually. When one mate falls below the
+threshold and the other does not, the survivor keeps its original flags — still marked as
+properly paired, because nothing rewrites them. `bedtools bamtobed -bedpe` then looks for the
+mate in the name-sorted stream, cannot find it, warns, and skips the read. On a real mm10
+sample that is 53,000-83,000 reads, about 0.2% of pairs.
+
+Skipping them is the correct behaviour: a fragment needs both ends. Measured on real data, the
+metrics are **identical** whether the orphans are skipped by bedtools or removed beforehand with
+`samtools fixmate -r` — same `TotalReadPairs`, `DistinctReadPairs`, NRF, PBC1 and PBC2, to the
+last digit. The ENCODE pipeline reaches the same place by a different route: it removes orphans
+from the BAM during filtering, before duplicate marking, so its `bamtobed` never sees them.
+
+A small residue of these warnings comes from supplementary alignments (`0x800`) rather than
+orphans: `-F 1804` does not filter those, so a read name can have three records. Same
+consequence — the extra records are skipped and the metrics do not change.
+
+If you are computing your own `-bedpe` statistics from the published BAMs, note that they do
+contain these orphans, and that removing them first (`samtools sort -n | samtools fixmate -r |
+samtools view -f 2`) changes nothing except the warnings. Do not filter with `-F 1804` at that
+point, as ENCODE does at its own filtering stage: `1804` includes `0x400`, so on a
+duplicate-marked BAM it would silently discard the duplicates the complexity metrics are built
+from.
+
 Note that the raw-versus-final split is deliberate: the pre-filtering flagstat is what tells you
 how much was lost to quality filtering and duplication.
 
