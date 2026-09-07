@@ -81,3 +81,6 @@ dependencies:
 
   # --- 8. Reporting --------------------------------------------------------
   - bioconda::multiqc=1.35
+  # DUMP_VERSIONS only copies a file and counts its keys; coreutils is named so that
+  # -profile conda builds it an environment at all.
+  - conda-forge::coreutils
