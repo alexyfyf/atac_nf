@@ -60,9 +60,10 @@ def isPlainGzip(path) {
         return false
     }
     try {
-        def head = new byte[4]
-        def n = f.withInputStream { stream -> stream.read(head) }
-        if (n < 4) {
+        // readNBytes rather than `new byte[4]`: the strict script parser in Nextflow 25+
+        // rejects Java array-creation syntax outright ("Unexpected input: '['").
+        def head = f.withInputStream { stream -> stream.readNBytes(4) }
+        if (head.size() < 4) {
             return true
         }
         def is_gzip = (head[0] & 0xff) == 0x1f && (head[1] & 0xff) == 0x8b
