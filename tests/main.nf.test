@@ -132,7 +132,7 @@ nextflow_pipeline {
         }
     }
 
-    test("single-end samples are handled per sample") {
+    test("a single-end samplesheet is rejected, not silently emptied") {
 
         options "-stub-run"
 
@@ -144,11 +144,32 @@ nextflow_pipeline {
         }
 
         then {
-            assert workflow.success
-            assert path("$outputDir/FilteredBamFiles/se1.final.bam").exists()
-            // No insert-size metrics for single-end libraries, from either pass
-            assert !path("$outputDir/FilteredBamFiles/se1.insert_size_metrics").exists()
-            assert !path("$outputDir/FilteredBamFiles/se1.final.insert_size_metrics").exists()
+            // This used to assert success on a stub run, which is exactly how the defect hid:
+            // the stub never executes the shift script, so it never noticed that the script
+            // drops every unpaired read and leaves an empty BAM.
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("Single-end input is not supported")
+        }
+    }
+
+    test("--reads with --single_end is rejected too") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir      = "$outputDir"
+                input       = null
+                reads       = "$projectDir/tests/data/*_R1.fq.gz"
+                single_end  = true
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("Single-end input is not supported")
         }
     }
 

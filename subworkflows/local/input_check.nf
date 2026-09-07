@@ -2,6 +2,17 @@
 // Build the `[ meta, [ fastqs ] ]` read channel from either a samplesheet (preferred) or the
 // legacy --reads glob. `single_end` is decided per sample rather than globally.
 //
+// Single-end input is rejected here, at the earliest point it can be detected. The Tn5 shift
+// step keeps only properly-paired alignments (bin/ATAC_BAM_shifter_gappedAlign.pl:74 tests the
+// flag against a list of paired flags), so single-end reads -- flag 0 or 16 -- are all
+// discarded and the shifted BAM comes out empty. Everything downstream then works on nothing.
+// Failing at the input is much better than producing empty peaks, and this is checked in the
+// parser rather than in main.nf so that both input routes are covered.
+//
+// The per-sample `single_end` branches elsewhere in the pipeline are left in place: they are
+// correct as far as they go, and will be needed again once the shift step handles unpaired
+// reads.
+//
 
 workflow INPUT_CHECK {
     take:
@@ -38,6 +49,19 @@ def readSamplesheet(samplesheet) {
         .map { row -> parseSamplesheetRow(row, seen_ids, sheet.parent) }
 }
 
+// One message for both input routes, so the explanation does not drift between them.
+def singleEndMessage(reason) {
+    return """${reason}
+    Single-end input is not supported by this pipeline.
+
+    The Tn5 shift step (bin/ATAC_BAM_shifter_gappedAlign.pl) keeps only alignments whose flag is
+    in its properly-paired list, so every single-end read is dropped and the shifted BAM is
+    empty. Peak calling, coverage, FRiP and the counts matrix would then all run on no reads,
+    and the run would either fail late or report nothing at all.
+
+    Use paired-end FASTQs, or run the shift step separately if you need single-end ATAC."""
+}
+
 // Relative FASTQ paths are resolved against the samplesheet's own directory, which keeps a
 // samplesheet portable regardless of where the pipeline is launched from. Absolute paths and
 // remote URIs are used as given.
@@ -51,6 +75,9 @@ def resolveFastq(path, base) {
 }
 
 def readGlob(reads_glob) {
+    if (params.single_end) {
+        error(singleEndMessage("--single_end was given."))
+    }
     return Channel
         .fromFilePairs(reads_glob, size: params.single_end ? 1 : 2)
         .ifEmpty {
@@ -83,6 +110,9 @@ def parseSamplesheetRow(row, seen_ids, base) {
     }
 
     def single_end = !row.fastq_2
+    if (single_end) {
+        error(singleEndMessage("Sample '${row.sample}' has no 'fastq_2', so it is single-end."))
+    }
     def meta = [
         id        : row.sample,
         single_end: single_end,

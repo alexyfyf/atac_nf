@@ -54,12 +54,11 @@ WT_2,/data/WT_2_R1.fq.gz,/data/WT_2_R2.fq.gz,2,WT
 KO_1,/data/KO_1_R1.fq.gz,,1,KO
 ```
 
-`sample` and `fastq_1` are required. An empty `fastq_2` marks that sample as single-end, so
-paired- and single-end samples can be mixed in one run. `replicate` and `condition` are optional
-and are carried through as metadata.
+`sample`, `fastq_1` and `fastq_2` are all required — the pipeline is **paired-end only** and
+rejects single-end input with an explanation (see [docs/usage.md](docs/usage.md#paired-end-only)).
+`replicate` and `condition` are optional and are carried through as metadata.
 
-The older glob interface still works: `--reads 'data/*_R{1,2}.fq.gz'` (add `--single_end` for
-single-end data).
+The older glob interface still works for paired reads: `--reads 'data/*_R{1,2}.fq.gz'`.
 
 ## Pipeline steps
 
