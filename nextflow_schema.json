@@ -81,7 +81,8 @@
                     "format": "file-path",
                     "mimetype": "text/plain",
                     "pattern": "^\\S+\\.(fa|fasta|fna)(\\.gz)?$",
-                    "description": "Path to the reference genome FASTA. Required unless --aligner_index or --genome supplies one.",
+                    "description": "Path to the reference genome FASTA. Required unless --aligner_index supplies one.",
+                    "help_text": "Plain, bgzip-compressed and ordinary gzip-compressed FASTA are all accepted. An ordinary gzip file is re-compressed with bgzip first, because samtools faidx cannot index a plain gzip stream and the pipeline needs that index.",
                     "fa_icon": "fas fa-file"
                 },
                 "mito_name": {

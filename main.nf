@@ -13,6 +13,7 @@ nextflow.enable.dsl = 2
 include { INPUT_CHECK           } from './subworkflows/local/input_check'
 include { PREPARE_GENOME        } from './subworkflows/local/prepare_genome'
 include { GENOME_STATS          } from './modules/local/genome_stats'
+include { BGZIP_FASTA           } from './modules/local/bgzip_fasta'
 include { ALIGN_READS           } from './subworkflows/local/align_reads'
 include { BAM_FILTER_QC         } from './subworkflows/local/bam_filter_qc'
 include { PEAK_CALLING          } from './subworkflows/local/peak_calling'
@@ -40,6 +41,41 @@ include { MULTIQC               } from './modules/local/multiqc'
  * Nextflow 25+ allows only declarations at script level — statements have to live inside a
  * process, workflow or function.
  */
+/*
+ * Is this FASTA compressed with ordinary gzip rather than BGZF?
+ *
+ * Only BGZF can be indexed by `samtools faidx`, and GENOME_STATS needs that index. Detecting it
+ * here rather than in a process means a reference that is already BGZF, or not compressed at
+ * all, costs nothing: no task is run.
+ *
+ * BGZF is gzip with an extra subfield, so the first bytes are the gzip magic (1f 8b), the
+ * compression method (08), and flags with FEXTRA (0x04) set. Reading 4 bytes is enough to tell
+ * a gzip member with no extra subfield from a BGZF one. If the file cannot be read here -- a
+ * remote URI, say -- assume it needs converting: an unnecessary conversion costs time, a missed
+ * one costs the run.
+ */
+def isPlainGzip(path) {
+    def f = file(path)
+    if (!f.name.endsWith('.gz')) {
+        return false
+    }
+    try {
+        def head = new byte[4]
+        def n = f.withInputStream { stream -> stream.read(head) }
+        if (n < 4) {
+            return true
+        }
+        def is_gzip = (head[0] & 0xff) == 0x1f && (head[1] & 0xff) == 0x8b
+        def has_extra = (head[3] & 0x04) != 0
+        return is_gzip && !has_extra
+    }
+    catch (Exception e) {
+        log.warn("Could not inspect ${path} to tell gzip from BGZF (${e.message}); " +
+                 "re-compressing it with bgzip to be safe.")
+        return true
+    }
+}
+
 def resolveAdapter() {
     if (params.adapter in ['atac', 'nextera']) {
         return "${projectDir}/assets/adapters/NexteraPE-PE.fa"
@@ -173,8 +209,19 @@ workflow ATACSEQ {
     ch_multiqc_files = Channel.empty()
 
     // An empty list is Nextflow's idiom for "no file" on an optional path input.
-    ch_fasta     = fasta_path ? Channel.value(file(fasta_path, checkIfExists: true))
+    // `samtools faidx` cannot index an ordinary gzip stream, so such a reference is
+    // re-compressed as BGZF first. Plain and already-BGZF references pass straight through.
+    if (fasta_path && isPlainGzip(fasta_path)) {
+        log.info("Reference is gzip-compressed but not BGZF; re-compressing with bgzip so it " +
+                 "can be indexed.")
+        BGZIP_FASTA(Channel.value(file(fasta_path, checkIfExists: true)))
+        ch_fasta    = BGZIP_FASTA.out.fasta.first()
+        ch_versions = ch_versions.mix(BGZIP_FASTA.out.versions)
+    }
+    else {
+        ch_fasta = fasta_path ? Channel.value(file(fasta_path, checkIfExists: true))
                               : Channel.value([])
+    }
     ch_blacklist = Channel.value(file(blacklist_path, checkIfExists: true))
     ch_adapter   = Channel.value(file(adapter_path, checkIfExists: true))
     ch_shift     = Channel.value(file(params.shift, checkIfExists: true))

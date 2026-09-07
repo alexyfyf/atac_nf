@@ -95,7 +95,7 @@ single-end data).
 |---|---|---|
 | `--input` | — | Samplesheet CSV (preferred input) |
 | `--reads` | — | Legacy FASTQ glob |
-| `--fasta` | — | Reference genome FASTA. Required unless `--aligner_index` supplies one |
+| `--fasta` | — | Reference genome FASTA, plain or compressed (gzip or bgzip). Required unless `--aligner_index` supplies one |
 | `--aligner` | `bwa` | `bwa` or `bwa-mem2` |
 | `--aligner_index` | — | Pre-built index directory; skips indexing |
 | `--trim` | `true` | Run trimmomatic |
