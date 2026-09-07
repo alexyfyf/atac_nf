@@ -21,7 +21,7 @@ KO_1,/data/KO_1_R1.fq.gz,,1,KO
 
 | Column | Required | Notes |
 |---|---|---|
-| `sample` | yes | Must be unique; used for every output filename |
+| `sample` | yes | Must be unique. Letters, digits, `.`, `_` and `-` only, starting with a letter or digit — the ID becomes an output filename and part of the bwa read group, so quotes and spaces break the run |
 | `fastq_1` | yes | Read 1 FASTQ (gzipped or plain) |
 | `fastq_2` | yes | Read 2 FASTQ. Required: see "Paired-end only" below |
 | `replicate` | no | Carried through as metadata |

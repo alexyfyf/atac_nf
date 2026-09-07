@@ -250,6 +250,27 @@ nextflow_pipeline {
         }
     }
 
+    test("a sample ID with shell metacharacters is rejected") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = "$projectDir/tests/data/samplesheet_bad_id.csv"
+            }
+        }
+
+        then {
+            // Without this check the run dies inside bash with "unexpected EOF while looking
+            // for matching '", which points at the generated script and never at the sample
+            // name that caused it. IDs become file names and go into the bwa read group.
+            assert workflow.failed
+            assert (workflow.stdout.join('\n') + (workflow.errorReport ?: ''))
+                .contains("Invalid sample ID")
+        }
+    }
+
     test("a duplicate sample ID is rejected") {
 
         options "-stub-run"

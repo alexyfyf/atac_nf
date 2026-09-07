@@ -49,6 +49,29 @@ def readSamplesheet(samplesheet) {
         .map { row -> parseSamplesheetRow(row, seen_ids, sheet.parent) }
 }
 
+// Sample IDs are interpolated straight into shell code: they become output file names via
+// ext.prefix, and they are embedded in the single-quoted bwa read-group argument
+// (`-R '@RG\tID:<id>\tSM:<id>...'`). An apostrophe closes that quote and the task dies with
+// `.command.sh: line 4: unexpected EOF while looking for matching '`, which points at bash and
+// says nothing about the samplesheet. Spaces, semicolons and parentheses break things in their
+// own ways. Sample names routinely arrive from a LIMS or a collaborator, so this is checked
+// rather than trusted.
+//
+// The set allowed here is deliberately narrow: it also has to survive being used as a MultiQC
+// sample name, an R column name and a UCSC track name.
+def checkSampleId(id) {
+    if (!(id ==~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/)) {
+        error("""Invalid sample ID: '${id}'
+    Sample IDs may contain only letters, digits, dot, underscore and hyphen, and must start
+    with a letter or digit.
+
+    IDs are used directly as output file names and inside the bwa read-group argument, so
+    quotes, spaces and shell metacharacters break the run with an error that points at bash
+    rather than at the samplesheet. Rename the sample, for example by replacing spaces and
+    punctuation with underscores.""")
+    }
+}
+
 // One message for both input routes, so the explanation does not drift between them.
 def singleEndMessage(reason) {
     return """${reason}
@@ -86,6 +109,8 @@ def readGlob(reads_glob) {
     For single-end data pass --single_end.""")
         }
         .map { name, fastqs ->
+            // Derived from the file name, so it can carry anything the filesystem allows.
+            checkSampleId(name)
             [ [ id: name, single_end: params.single_end, replicate: null, condition: null ],
               fastqs instanceof List ? fastqs : [ fastqs ] ]
         }
@@ -103,6 +128,8 @@ def parseSamplesheetRow(row, seen_ids, base) {
     if (!row.fastq_1) {
         error("Sample '${row.sample}' has an empty 'fastq_1' value.")
     }
+
+    checkSampleId(row.sample)
 
     // Duplicate IDs would silently overwrite each other in publishDir.
     if (!seen_ids.add(row.sample)) {
