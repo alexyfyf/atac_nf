@@ -50,9 +50,13 @@ workflow BAM_FILTER_QC {
     // Second filtering pass drops the reads picard just flagged as duplicates.
     SAMTOOLS_FINAL(PICARD_MARKDUPLICATES.out.bam)
     SAMTOOLS_STATS_FINAL(SAMTOOLS_FINAL.out.bam)
+    // Aliases of SAMTOOLS_FILTER and SAMTOOLS_STATS, but separate entries in the versions file.
+    ch_versions = ch_versions.mix(SAMTOOLS_FINAL.out.versions.first())
+    ch_versions = ch_versions.mix(SAMTOOLS_STATS_FINAL.out.versions.first())
 
     // The fragment-size distribution people actually read, off the deduplicated BAM.
     PICARD_INSERTSIZE_FINAL(SAMTOOLS_FINAL.out.bam, ch_fasta)
+    ch_versions = ch_versions.mix(PICARD_INSERTSIZE_FINAL.out.versions.first())
 
     emit:
     bam            = SAMTOOLS_FINAL.out.bam                  // [ meta, bam, bai ]

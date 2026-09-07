@@ -206,6 +206,19 @@ jobs:
             grep -q "$s" results/MultiQC/multiqc_report.html \
               || { echo "MultiQC section missing from the report: $s"; exit 1; }
           done
+          # Every process that ran must appear in software_versions.yml. Six were missing
+          # before this check existed, including MultiQC itself, and nothing noticed because a
+          # partial versions file looks exactly like a complete one.
+          ran=$(awk -F'\t' 'NR>1{print $4}' results/pipeline_info/execution_trace.txt \
+                | sed 's/.*://; s/ .*//' | sort -u | grep -v '^DUMP_VERSIONS$')
+          have=$(sed -n 's/^"\(.*\)":$/\1/p' results/pipeline_info/software_versions.yml \
+                 | sed 's/.*://' | sort -u)
+          missing=$(comm -13 <(echo "$have") <(echo "$ran"))
+          if [ -n "$missing" ]; then
+            echo "processes missing from software_versions.yml:"; echo "$missing"; exit 1
+          fi
+          echo "software_versions.yml covers all $(echo "$ran" | wc -l) processes"
+
           echo "FRiP metrics:"; cat results/FRiP/*.metric
           echo "Library complexity:"; cat results/FilteredBamFiles/*_pbc.txt
           echo "Contig exclusions:"; cat results/ShiftedBamFiles/*.shift_summary.txt
