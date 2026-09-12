@@ -28,6 +28,7 @@ workflow PEAK_CALLING {
     ch_versions = ch_versions.mix(MACS3_CALLPEAK_NARROW.out.versions.first())
 
     MACS3_CALLPEAK_BROAD(BEDTOOLS_BAMTOBED.out.bed, macs_gsize)
+    ch_versions = ch_versions.mix(MACS3_CALLPEAK_BROAD.out.versions.first())
 
     ch_hmmratac_peak = Channel.empty()
     if (run_hmmratac) {

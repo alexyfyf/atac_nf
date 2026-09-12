@@ -27,6 +27,7 @@ include { FRIP_SCORE            } from './modules/local/frip_score'
 include { DEEPTOOLS_BAMCOVERAGE } from './modules/local/deeptools_bamcoverage'
 include { QC_SUMMARY            } from './modules/local/qc_summary'
 include { MULTIQC               } from './modules/local/multiqc'
+include { DUMP_VERSIONS         } from './modules/local/dump_versions'
 
 /*
  * Reference resolution.
@@ -235,6 +236,9 @@ workflow ATACSEQ {
         ch_multiqc_files = ch_multiqc_files.mix(TRIMMOMATIC.out.log.collect { _meta, log -> log })
 
         FASTQC_TRIM(ch_trimmed_reads)
+        // Alias of the same process, but a distinct entry in the versions file, so it needs
+        // mixing in its own right.
+        ch_versions      = ch_versions.mix(FASTQC_TRIM.out.versions.first())
         ch_multiqc_files = ch_multiqc_files.mix(FASTQC_TRIM.out.zip.collect { _meta, zip -> zip })
     }
     else {
@@ -356,18 +360,21 @@ workflow ATACSEQ {
         ch_multiqc_files = ch_multiqc_files.mix(QC_SUMMARY.out.mqc)
     }
 
-    ch_versions
-        .map { it.text }
-        .unique()
-        .collectFile(
-            name: 'software_versions.yml',
-            storeDir: "${params.outdir}/pipeline_info",
-            sort: true
-        )
-
     MULTIQC(
         ch_multiqc_files.collect().ifEmpty([]),
         Channel.value(file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true))
+    )
+    // MultiQC is a reported tool like any other, so its version has to be collected too. That
+    // means the dump has to come after this call, which is why it sits at the very end.
+    ch_versions = ch_versions.mix(MULTIQC.out.versions)
+
+    DUMP_VERSIONS(
+        ch_versions
+            .map { it.text }
+            .unique()
+            // Deliberately not called software_versions.yml: that is the process's output
+            // name, and staging an input under the same name makes the copy a no-op error.
+            .collectFile(name: 'collected_versions.yml', sort: true)
     )
 }
 
