@@ -28,7 +28,12 @@ process GENOME_STATS {
     task.ext.when == null || task.ext.when
 
     script:
-    def reader = fasta.getName().endsWith('.gz') ? "zcat ${fasta}" : "cat ${fasta}"
+    // `bgzip -d -c`, not zcat: this container ships htslib and samtools and nothing else --
+    // no zcat, gzip or gunzip. With zcat the failure was invisible, because the missing command
+    // only breaks the left side of a pipe: awk still exited 0 on empty input, the base count
+    // came out as 0, and the run died claiming the FASTA was invalid. bgzip -d also reads
+    // ordinary gzip, so it covers both compressed forms.
+    def reader = fasta.getName().endsWith('.gz') ? "bgzip -d -c ${fasta}" : "cat ${fasta}"
     """
     samtools faidx $fasta --fai-idx ${fasta.baseName}.fai 2>/dev/null \\
         || samtools faidx $fasta

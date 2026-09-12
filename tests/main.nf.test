@@ -337,6 +337,45 @@ nextflow_pipeline {
         }
     }
 
+    test("an ordinary gzip FASTA is re-compressed as BGZF") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+                fasta  = "$projectDir/tests/data/genome_gzip.fa.gz"
+            }
+        }
+
+        then {
+            // samtools faidx rejects a plain gzip stream, and GENOME_STATS needs that index,
+            // so the reference is converted first. A stock reference from Ensembl or UCSC is
+            // ordinary gzip, so this is the common case rather than an exotic one.
+            assert workflow.success
+            // One task more than the plain-FASTA run: the bgzip conversion.
+            assert workflow.trace.tasks().size() == 49
+            assert path("$outputDir/genome_stats/effective_genome_size.txt").exists()
+        }
+    }
+
+    test("a plain FASTA is used as-is, with no conversion task") {
+
+        options "-stub-run"
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // No conversion task: an uncompressed reference is used exactly as given.
+            assert workflow.trace.tasks().size() == 48
+        }
+    }
+
     test("a pre-built index runs without --fasta and skips indexing") {
 
         options "-stub-run"
