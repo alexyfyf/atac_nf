@@ -21,9 +21,9 @@ KO_1,/data/KO_1_R1.fq.gz,,1,KO
 
 | Column | Required | Notes |
 |---|---|---|
-| `sample` | yes | Must be unique; used for every output filename |
+| `sample` | yes | Must be unique. Letters, digits, `.`, `_` and `-` only, starting with a letter or digit — the ID becomes an output filename and part of the bwa read group, so quotes and spaces break the run |
 | `fastq_1` | yes | Read 1 FASTQ (gzipped or plain) |
-| `fastq_2` | no | Leave empty for single-end samples |
+| `fastq_2` | yes | Read 2 FASTQ. Required: see "Paired-end only" below |
 | `replicate` | no | Carried through as metadata |
 | `condition` | no | Carried through as metadata |
 
@@ -38,10 +38,23 @@ and duplicate sample IDs all fail immediately with a message naming the offendin
 
 ```bash
 --reads 'data/*_R{1,2}.fq.gz'      # quote it, or the shell expands it first
---reads 'data/*.fq.gz' --single_end
 ```
 
-This path has no per-sample metadata, so `--single_end` applies to the whole run.
+This path has no per-sample metadata: `replicate` and `condition` are unset, so DESeq2 and the
+grouping in the QC summary and the track hub have nothing to work with. Prefer `--input`.
+
+## Paired-end only
+
+The pipeline requires paired-end reads and rejects single-end input at the start of the run,
+whether it arrives as a samplesheet row with an empty `fastq_2` or as `--reads` with
+`--single_end`.
+
+The reason is the Tn5 shift step: `bin/ATAC_BAM_shifter_gappedAlign.pl` keeps only alignments
+whose SAM flag appears in its properly-paired list, so single-end reads (flag 0 or 16) are all
+discarded. A single-end run would produce an empty shifted BAM and then call peaks, build
+coverage tracks and count reads over nothing — failing late, or reporting nothing at all,
+rather than saying so. Rejecting the input is the honest behaviour until the shift step handles
+unpaired reads.
 
 ## Reference
 
