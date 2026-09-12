@@ -353,8 +353,9 @@ nextflow_pipeline {
             // so the reference is converted first. A stock reference from Ensembl or UCSC is
             // ordinary gzip, so this is the common case rather than an exotic one.
             assert workflow.success
-            // One task more than the plain-FASTA run: the bgzip conversion.
-            assert workflow.trace.tasks().size() == 49
+            // Name the conversion task rather than counting every task in the pipeline: a
+            // total is a moving target that any unrelated new process invalidates.
+            assert workflow.trace.tasks().any { it.name.startsWith('ATACSEQ:BGZIP_FASTA') }
             assert path("$outputDir/genome_stats/effective_genome_size.txt").exists()
         }
     }
@@ -372,7 +373,7 @@ nextflow_pipeline {
         then {
             assert workflow.success
             // No conversion task: an uncompressed reference is used exactly as given.
-            assert workflow.trace.tasks().size() == 48
+            assert !workflow.trace.tasks().any { it.name.startsWith('ATACSEQ:BGZIP_FASTA') }
         }
     }
 
